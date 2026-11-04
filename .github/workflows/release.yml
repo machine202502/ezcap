@@ -64,13 +64,19 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: vcpkg_installed
-          key: ffmpeg-x64-windows-static-release-${{ hashFiles('vcpkg.json') }}
+          key: ffmpeg-8.1-c87dcfa7-x64-windows-static-release-${{ hashFiles('vcpkg.json') }}
 
       - name: Build FFmpeg
         if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          git clone --depth 1 https://github.com/microsoft/vcpkg.git C:\vcpkg
+          # ffmpeg-next 8.1.0 is generated from FFmpeg 8.1 headers. Later vcpkg
+          # checkouts ship 9.x, and that pair does not compile.
+          $commit = "c87dcfa7e420eba1f8efddd5c9b795aa61eddb05"
+          git init C:\vcpkg
+          git -C C:\vcpkg remote add origin https://github.com/microsoft/vcpkg.git
+          git -C C:\vcpkg fetch --depth 1 origin $commit
+          git -C C:\vcpkg checkout FETCH_HEAD
           & C:\vcpkg\bootstrap-vcpkg.bat -disableMetrics
           $env:VCPKG_ROOT = "C:\vcpkg"
           $env:VCPKG_BUILD_TYPE = "release"
@@ -81,7 +87,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: vcpkg_installed
-          key: ffmpeg-x64-windows-static-release-${{ hashFiles('vcpkg.json') }}
+          key: ffmpeg-8.1-c87dcfa7-x64-windows-static-release-${{ hashFiles('vcpkg.json') }}
 
       - name: Test
         shell: pwsh
