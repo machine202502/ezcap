@@ -51,7 +51,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 360
     env:
-      FFMPEG_DIR: ${{ github.workspace }}\vcpkg_installed\x64-windows-static
+      FFMPEG_DIR: ${{ github.workspace }}\vcpkg_installed\x64-windows-static-release
       VCPKG_ROOT: C:\vcpkg
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -64,7 +64,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: vcpkg_installed
-          key: ffmpeg-8.1-c87dcfa7-x64-windows-static-release-${{ hashFiles('vcpkg.json') }}
+          key: ffmpeg-8.1-c87dcfa7-release-only-${{ hashFiles('vcpkg.json', 'triplets/x64-windows-static-release.cmake') }}
 
       - name: Build FFmpeg
         if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
@@ -79,19 +79,18 @@ jobs:
           git -C C:\vcpkg checkout FETCH_HEAD
           & C:\vcpkg\bootstrap-vcpkg.bat -disableMetrics
           $env:VCPKG_ROOT = "C:\vcpkg"
-          $env:VCPKG_BUILD_TYPE = "release"
-          & C:\vcpkg\vcpkg.exe install --triplet x64-windows-static
+          & C:\vcpkg\vcpkg.exe install --triplet x64-windows-static-release --overlay-triplets "${{ github.workspace }}\triplets"
 
       - name: Save FFmpeg
         if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: vcpkg_installed
-          key: ffmpeg-8.1-c87dcfa7-x64-windows-static-release-${{ hashFiles('vcpkg.json') }}
+          key: ffmpeg-8.1-c87dcfa7-release-only-${{ hashFiles('vcpkg.json', 'triplets/x64-windows-static-release.cmake') }}
 
       - name: Test
         shell: pwsh
-        run: cargo test --bin ezcap
+        run: cargo test --release --bin ezcap
 
       - name: Install Inno Setup
         run: choco install innosetup --yes --no-progress
