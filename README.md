@@ -2,7 +2,7 @@
 
 Windows program for screen, region, and audio capture. It records MKV, GIF, and WebP, takes screenshots, and can keep running from the tray.
 
-The source in this repository is under the MIT license. A release build statically links FFmpeg and x264 under the GNU GPL v2 or later, so the distributed executable is covered by the GPL. `COPYING` is that license. `NOTICE` and the generated `THIRD-PARTY.txt` name the library versions and travel with the zip and the installer. Source and downloads: https://github.com/machine202502/ezcap
+The source in this repository is under the MIT license. A release build statically links FFmpeg and x264 under the GNU GPL v2 or later, so the distributed executable is covered by the GPL. `COPYING` is that license. The overlay icons are Phosphor Icons under the MIT license (`assets/Phosphor.LICENSE`). `NOTICE` names these obligations. The generated `THIRD-PARTY.txt` adds the copyright text for the linked codecs and for the Rust crates, and it travels with the zip and the installer. Source and downloads: https://github.com/machine202502/ezcap
 
 ## Build
 

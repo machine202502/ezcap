@@ -71,7 +71,7 @@ fn show_about(owner: HWND) {
     let title = wide("ezcap");
     let instruction = wide("ezcap");
     let content = wide(&format!(
-        "Version {}\n\nScreen, region and audio capture.\n\nIncludes FFmpeg and x264 under the <a href=\"https://www.gnu.org/licenses/old-licenses/gpl-2.0.html\">GNU GPL v2 or later</a>.\n<a href=\"https://ffmpeg.org/legal.html\">FFmpeg</a>\n<a href=\"https://www.videolan.org/developers/x264.html\">x264</a>\n\n<a href=\"{REPOSITORY}\">ezcap source</a>",
+        "Version {}\n\nScreen, region and audio capture.\n\nIncludes FFmpeg and x264 under the <a href=\"https://www.gnu.org/licenses/old-licenses/gpl-2.0.html\">GNU GPL v2 or later</a>.\n<a href=\"https://ffmpeg.org/legal.html\">FFmpeg</a>\n<a href=\"https://www.videolan.org/developers/x264.html\">x264</a>\n\nIcons from <a href=\"https://phosphoricons.com\">Phosphor Icons</a>, <a href=\"https://github.com/phosphor-icons/homepage/blob/master/LICENSE\">MIT</a>.\n\nOther library and crate notices are in NOTICE and THIRD-PARTY.txt next to this program.\n\n<a href=\"{REPOSITORY}\">ezcap source</a>",
         env!("CARGO_PKG_VERSION")
     ));
     let mut config = TASKDIALOGCONFIG {

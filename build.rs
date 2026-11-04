@@ -12,7 +12,7 @@ fn main() {
     resource.set("FileDescription", "Screen, region and audio capture");
     resource.set(
         "Comments",
-        "https://github.com/machine202502/ezcap — includes FFmpeg and x264 under the GNU GPL v2 or later (https://ffmpeg.org/legal.html).",
+        "https://github.com/machine202502/ezcap — includes FFmpeg and x264 under the GNU GPL v2 or later (https://ffmpeg.org/legal.html) and Phosphor Icons under the MIT License (https://phosphoricons.com). Other notices are in THIRD-PARTY.txt.",
     );
     resource.set("OriginalFilename", "ezcap.exe");
     resource.compile().unwrap();

@@ -37,7 +37,7 @@ Windows x64.
 - ``ezcap-$Version-windows-x64.zip`` is portable. Unzip it and run ``ezcap.exe``.
 - ``ezcap-$Version-windows-x64-setup.exe`` installs ezcap for all users.
 
-The executable includes FFmpeg and x264 under the GNU GPL v2 or later. ``COPYING``, ``NOTICE``, and ``THIRD-PARTY.txt`` in the zip and the install folder name the versions and where to get the source.
+The executable includes FFmpeg and x264 under the GNU GPL v2 or later, Phosphor Icons under the MIT License, and the other libraries and Rust crates named in the notices. ``COPYING``, ``NOTICE``, and ``THIRD-PARTY.txt`` in the zip and the install folder carry those terms and where to get the source.
 ezcap source for this tag: https://github.com/machine202502/ezcap/tree/$Tag
 "@
 

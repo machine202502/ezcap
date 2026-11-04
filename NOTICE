@@ -1,6 +1,34 @@
-ezcap includes FFmpeg and x264.
+ezcap includes third-party components.
 
 FFmpeg (https://ffmpeg.org) and x264 (https://www.videolan.org/developers/x264.html) are licensed under the GNU General Public License, version 2 or later. The text is in COPYING. Their license page is https://ffmpeg.org/legal.html.
 
+That FFmpeg build also statically links other libraries, including zlib, libwebp, and LAME. The copyright and license text for each library in a given build is in THIRD-PARTY.txt next to the executable.
+
+Overlay icons use Phosphor (assets/Phosphor.ttf) from Phosphor Icons (https://phosphoricons.com). Copyright (c) 2020 Phosphor Icons. The font is under the MIT License:
+
+MIT License
+
+Copyright (c) 2020 Phosphor Icons
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+The executable also contains Rust crates. Their names, versions, authors, and license texts are in THIRD-PARTY.txt. Those crates are under MIT, Apache-2.0, BSD, zlib, or the Do What The Fuck You Want To Public License (the ffmpeg-next bindings).
+
 Source code for ezcap: https://github.com/machine202502/ezcap
-The FFmpeg and x264 versions built into a given executable are listed in THIRD-PARTY.txt next to that executable.
+The same file, assets/Phosphor.LICENSE, is the MIT text for the font in this source tree.
