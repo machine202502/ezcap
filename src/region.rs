@@ -1,5 +1,5 @@
 use crate::geom::{self, Panel};
-use crate::media::{self, Frame, Profile, Rect};
+use crate::media::{self, Frame, Rect};
 use crate::theme;
 use std::path::PathBuf;
 use windows::core::{w, PCWSTR};
@@ -81,6 +81,17 @@ impl Selection {
             y: monitor.y + self.y,
             w: self.w as u32,
             h: self.h as u32,
+        }
+    }
+    /// Moves an existing area. Reaching an edge stops it there; it must not be squeezed
+    /// against that edge the way a resize would be.
+    fn nudge(self, dx: i32, dy: i32, width: i32, height: i32) -> Self {
+        let max_x = (width - self.w).max(0);
+        let max_y = (height - self.h).max(0);
+        Self {
+            x: (self.x + dx).clamp(0, max_x),
+            y: (self.y + dy).clamp(0, max_y),
+            ..self
         }
     }
     fn panel(self) -> Panel {
@@ -170,9 +181,31 @@ struct Button {
 
 pub enum Outcome {
     Cancel,
-    Record(Rect, Profile),
+    Record(Rect),
     Screen,
     Saved(PathBuf),
+}
+
+/// Which area overlay is open. Video is only offered from the tray.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Overlay {
+    /// Capture tab, record the selection. Uses the capture profile.
+    Capture,
+    /// Capture tab, screenshot the selection. Record uses the capture profile.
+    Screenshot,
+    /// Tray area. Record uses the tray area profile. Video uses tray video recording.
+    Tray,
+}
+
+impl Overlay {
+    pub fn annotates(self) -> bool {
+        matches!(self, Self::Screenshot | Self::Tray)
+    }
+
+    /// The full-screen Video button. Screenshot and capture selection do not show it.
+    pub fn shows_video(self) -> bool {
+        matches!(self, Self::Tray)
+    }
 }
 
 struct Region {
@@ -181,8 +214,7 @@ struct Region {
     monitor: Rect,
     monitors: Vec<Rect>,
     current_monitor: usize,
-    profile: Profile,
-    dynamic: bool,
+    overlay: Overlay,
     allow_record: bool,
     selection: Option<Selection>,
     drag: Option<Drag>,
@@ -216,19 +248,14 @@ struct Region {
 }
 
 impl Region {
-    fn new(
-        hwnd: HWND,
-        profile: Profile,
-        dynamic: bool,
-        allow_record: bool,
-    ) -> Result<Box<Self>, String> {
+    fn new(hwnd: HWND, overlay: Overlay, allow_record: bool) -> Result<Box<Self>, String> {
         let current = media::cursor_monitor_rect();
         let frame = if allow_record {
             crate::capture::grab_still(current)?
         } else {
             crate::capture::grab_display(current)?
         };
-        let mut region = Self::with_frame(hwnd, profile, dynamic, allow_record, frame, current);
+        let mut region = Self::with_frame(hwnd, overlay, allow_record, frame, current);
         let monitors = monitor_rects();
         region.current_monitor = monitors
             .iter()
@@ -240,8 +267,7 @@ impl Region {
 
     fn with_frame(
         hwnd: HWND,
-        profile: Profile,
-        dynamic: bool,
+        overlay: Overlay,
         allow_record: bool,
         frame: Frame,
         monitor: Rect,
@@ -259,8 +285,7 @@ impl Region {
             monitor,
             monitors: vec![monitor],
             current_monitor: 0,
-            profile,
-            dynamic,
+            overlay,
             allow_record,
             selection: None,
             drag: None,
@@ -466,10 +491,7 @@ impl Region {
             Role::Save => self.save(true),
             Role::Record => {
                 if let Some(selection) = self.selected() {
-                    self.finish(Outcome::Record(
-                        selection.output(self.monitor),
-                        self.profile.clone(),
-                    ));
+                    self.finish(Outcome::Record(selection.output(self.monitor)));
                 }
             }
             Role::Video => self.finish(Outcome::Screen),
@@ -535,14 +557,11 @@ impl Region {
         } else if key == VK_TAB.0 as u32 {
             self.next_monitor();
         } else if key == VK_RETURN.0 as u32 {
-            if self.dynamic {
+            if self.overlay.annotates() {
                 self.save(false);
             } else if self.allow_record {
                 if let Some(selection) = self.selected() {
-                    self.finish(Outcome::Record(
-                        selection.output(self.monitor),
-                        self.profile.clone(),
-                    ));
+                    self.finish(Outcome::Record(selection.output(self.monitor)));
                 }
             }
         } else if let Some(mut selection) = self.selected() {
@@ -557,12 +576,12 @@ impl Region {
                 if shift {
                     selection.w = (selection.w + dx).max(2);
                     selection.h = (selection.h + dy).max(2);
+                    selection = selection.clamp(self.frame.width as i32, self.frame.height as i32);
                 } else {
-                    selection.x += dx;
-                    selection.y += dy;
+                    selection =
+                        selection.nudge(dx, dy, self.frame.width as i32, self.frame.height as i32);
                 }
-                self.selection =
-                    Some(selection.clamp(self.frame.width as i32, self.frame.height as i32));
+                self.selection = Some(selection);
             }
         }
         self.layout();
@@ -1054,7 +1073,12 @@ impl Region {
                 w!("Segoe UI"),
             )
         };
-        if self.edit.is_invalid() {
+        let edit_alive = unsafe {
+            // SAFETY: The handle is either null or the editor this overlay created. IsWindow only reads its state.
+            IsWindow(self.edit).as_bool()
+        };
+        if !edit_alive {
+            self.edit = HWND::default();
             let origin = self.edit_screen_origin();
             let style = WS_POPUP
                 | WINDOW_STYLE(ES_MULTILINE as u32 | ES_AUTOVSCROLL as u32 | ES_NOHIDESEL as u32);
@@ -1229,21 +1253,29 @@ impl Region {
         };
         let shown_cancel = !self.editing && self.drag.is_none() && self.current.is_none();
         let Some(selection) = self.selected() else {
-            let width = action_width(self, Role::Cancel);
+            let roles = opening_roles(self.overlay);
             let height = scale(32);
-            self.buttons.push(Button {
-                role: Role::Cancel,
-                x: screen.w / 2 - width / 2,
-                y: screen.h / 2 + scale(48),
-                w: width,
-                h: height,
-                shown: shown_cancel,
-                swatch: None,
-            });
+            let gap = scale(6);
+            let widths: Vec<i32> = roles.iter().map(|role| action_width(self, *role)).collect();
+            let total = widths.iter().sum::<i32>() + gap * (widths.len() as i32 - 1).max(0);
+            let mut x = screen.w / 2 - total / 2;
+            let y = screen.h / 2 + scale(48);
+            for (role, width) in roles.into_iter().zip(widths) {
+                self.buttons.push(Button {
+                    role,
+                    x,
+                    y,
+                    w: width,
+                    h: height,
+                    shown: shown_cancel,
+                    swatch: None,
+                });
+                x += width + gap;
+            }
             return;
         };
         let shown = shown_cancel;
-        let tools = if self.dynamic {
+        let tools = if self.overlay.annotates() {
             vec![
                 Role::Select,
                 Role::Pen,
@@ -1261,7 +1293,7 @@ impl Region {
         } else {
             Vec::new()
         };
-        let actions = action_roles(self.dynamic);
+        let actions = action_roles(self.overlay);
         let gap = scale(2);
         let side = scale(34);
         let action_gap = scale(6);
@@ -1318,7 +1350,9 @@ impl Region {
         let (tools_rect, actions_rect) = geom::place_panels(
             screen,
             selection.panel(),
-            self.dynamic.then_some((tools_w, tools_h.max(side))),
+            self.overlay
+                .annotates()
+                .then_some((tools_w, tools_h.max(side))),
             (actions_w, actions_h),
             margin,
         );
@@ -1859,6 +1893,14 @@ unsafe extern "system" fn edit_proc(
             LRESULT(0)
         }
         WM_KEYDOWN if wparam.0 == VK_ESCAPE.0 as usize => {
+            region().cancel_text();
+            SetFocus(region().hwnd);
+            LRESULT(0)
+        }
+        // Alt+F4 (or any other close request) belongs to the text box, not to the whole
+        // overlay. Destroying only the child editor left the Text tool holding a dead
+        // window handle, so it could never be opened again in this selection.
+        WM_CLOSE => {
             region().cancel_text();
             SetFocus(region().hwnd);
             LRESULT(0)
@@ -2596,7 +2638,7 @@ pub fn register(instance: HINSTANCE) {
     }
 }
 
-pub fn open(profile: Profile, dynamic: bool, allow_record: bool) -> Result<(), String> {
+pub fn open(overlay: Overlay, allow_record: bool) -> Result<(), String> {
     unsafe {
         // SAFETY: The class name lives for the process. The new HWND is stored and destroyed with its owner.
 
@@ -2619,14 +2661,14 @@ pub fn open(profile: Profile, dynamic: bool, allow_record: bool) -> Result<(), S
             None,
         )
         .map_err(|error| error.to_string())?;
-        REGION = Box::into_raw(Region::new(hwnd, profile, dynamic, allow_record)?);
+        REGION = Box::into_raw(Region::new(hwnd, overlay, allow_record)?);
         region().show();
         Ok(())
     }
 }
 
 #[cfg(test)]
-pub fn open_with_frame(frame: Frame, profile: Profile, scale: u32) -> Result<(), String> {
+pub fn open_with_frame(frame: Frame, scale: u32) -> Result<(), String> {
     unsafe {
         // SAFETY: The class name lives for the process. The new HWND is stored and destroyed with its owner.
 
@@ -2655,7 +2697,11 @@ pub fn open_with_frame(frame: Frame, profile: Profile, scale: u32) -> Result<(),
         )
         .map_err(|error| error.to_string())?;
         REGION = Box::into_raw(Region::with_frame(
-            hwnd, profile, true, true, frame, monitor,
+            hwnd,
+            Overlay::Screenshot,
+            true,
+            frame,
+            monitor,
         ));
         region().scale = scale;
         region().selection = Some(Selection {
@@ -2813,18 +2859,26 @@ pub fn has_outcome() -> bool {
     region().outcome.is_some()
 }
 
-fn action_roles(dynamic: bool) -> Vec<Role> {
-    if dynamic {
-        vec![
-            Role::Copy,
-            Role::Save,
-            Role::Record,
-            Role::Video,
-            Role::Cancel,
-        ]
-    } else {
-        vec![Role::Record, Role::Video, Role::Cancel]
+fn opening_roles(overlay: Overlay) -> Vec<Role> {
+    let mut roles = Vec::new();
+    if overlay.shows_video() {
+        roles.push(Role::Video);
     }
+    roles.push(Role::Cancel);
+    roles
+}
+
+fn action_roles(overlay: Overlay) -> Vec<Role> {
+    let mut roles = Vec::new();
+    if overlay.annotates() {
+        roles.extend([Role::Copy, Role::Save]);
+    }
+    roles.push(Role::Record);
+    if overlay.shows_video() {
+        roles.push(Role::Video);
+    }
+    roles.push(Role::Cancel);
+    roles
 }
 
 pub fn take_outcome() -> Option<Outcome> {
@@ -3056,17 +3110,32 @@ mod region_actions {
     use super::{action_roles, suggested_image_path, Role};
 
     #[test]
-    fn video_sits_beside_record_for_a_selected_area() {
+    fn video_is_only_offered_when_the_area_was_opened_from_the_tray() {
+        use super::Overlay;
+
         assert_eq!(
-            action_roles(false),
-            vec![Role::Record, Role::Video, Role::Cancel]
+            action_roles(Overlay::Capture),
+            vec![Role::Record, Role::Cancel]
         );
-        let actions = action_roles(true);
-        let record = actions
-            .iter()
-            .position(|role| *role == Role::Record)
-            .unwrap();
-        assert_eq!(actions[record + 1], Role::Video);
+        assert_eq!(
+            action_roles(Overlay::Screenshot),
+            vec![Role::Copy, Role::Save, Role::Record, Role::Cancel]
+        );
+        assert!(!Overlay::Capture.shows_video());
+        assert!(!Overlay::Screenshot.shows_video());
+        let tray = action_roles(Overlay::Tray);
+        let record = tray.iter().position(|role| *role == Role::Record).unwrap();
+        assert_eq!(tray[record + 1], Role::Video);
+        assert!(Overlay::Tray.shows_video());
+        assert_eq!(
+            super::opening_roles(Overlay::Tray),
+            vec![Role::Video, Role::Cancel]
+        );
+        assert_eq!(super::opening_roles(Overlay::Capture), vec![Role::Cancel]);
+        assert_eq!(
+            super::opening_roles(Overlay::Screenshot),
+            vec![Role::Cancel]
+        );
     }
 
     #[test]

@@ -792,6 +792,21 @@ pub fn downmix_stereo(input: &[f32], channels: usize) -> Vec<f32> {
     output
 }
 
+/// Multiplies microphone samples on the shared recording timeline.
+///
+/// The result is not clamped here: the encoder clamps the final mix, and keeping
+/// values above 1.0 lets a 200% or 300% setting actually make a quiet microphone
+/// louder instead of flattening it at the ceiling twice.
+pub fn apply_gain(samples: &mut [f32], gain: u32) {
+    let factor = gain as f32 / 100.0;
+    if factor == 1.0 {
+        return;
+    }
+    for sample in samples {
+        *sample *= factor;
+    }
+}
+
 pub fn resample_stereo(input: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
     if from_rate == 0 || to_rate == 0 || from_rate == to_rate || input.len() < 2 {
         return input.to_vec();
@@ -977,6 +992,24 @@ mod tests {
         let rest = mix_stereo(&mut pending);
         assert!(rest.is_empty(), "a stream with no partner must wait");
         assert_eq!(pending[0], vec![0.5, 0.25]);
+    }
+
+    #[test]
+    fn microphone_gain_scales_past_unity() {
+        let mut samples = [0.25f32, -0.5, 0.0];
+        apply_gain(&mut samples, 100);
+        assert_eq!(samples, [0.25, -0.5, 0.0]);
+        apply_gain(&mut samples, 200);
+        assert_eq!(samples, [0.5, -1.0, 0.0]);
+        apply_gain(&mut samples, 0);
+        assert_eq!(samples, [0.0, 0.0, 0.0]);
+        let mut loud = [0.8f32];
+        apply_gain(&mut loud, 300);
+        assert!(
+            (loud[0] - 2.4).abs() < 0.001,
+            "300% must amplify past the encoder ceiling, got {}",
+            loud[0]
+        );
     }
 
     #[test]

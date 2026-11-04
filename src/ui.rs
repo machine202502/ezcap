@@ -1,4 +1,4 @@
-use crate::{media, wide, AudioSettings, CaptureSettings, Settings};
+use crate::{media, wide, AudioSettings, CaptureSettings, ProfileRef, Settings};
 use media::{Format, VideoSettings};
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::*;
@@ -48,6 +48,52 @@ pub fn history_id(id: i32) -> bool {
     (ID_HISTORY..ID_HISTORY + HISTORY_COUNT).contains(&id)
 }
 
+pub fn is_mic_gain(id: i32) -> bool {
+    matches!(
+        id,
+        ID_MIC_GAIN | ID_TRAY_AREA_GAIN | ID_TRAY_VIDEO_GAIN | ID_TRAY_AUDIO_GAIN
+    )
+}
+
+pub fn is_mic_gain_value(id: i32) -> bool {
+    matches!(
+        id,
+        ID_MIC_GAIN_VALUE
+            | ID_TRAY_AREA_GAIN_VALUE
+            | ID_TRAY_VIDEO_GAIN_VALUE
+            | ID_TRAY_AUDIO_GAIN_VALUE
+    )
+}
+
+pub fn microphone_control(source: ProfileRef) -> i32 {
+    match source {
+        ProfileRef::Capture => ID_MIC_GAIN,
+        ProfileRef::Area => ID_TRAY_AREA_GAIN,
+        ProfileRef::Video => ID_TRAY_VIDEO_GAIN,
+        ProfileRef::Audio => ID_TRAY_AUDIO_GAIN,
+    }
+}
+
+pub fn profile_for_microphone(id: i32) -> Option<ProfileRef> {
+    match id {
+        ID_MIC_GAIN => Some(ProfileRef::Capture),
+        ID_TRAY_AREA_GAIN => Some(ProfileRef::Area),
+        ID_TRAY_VIDEO_GAIN => Some(ProfileRef::Video),
+        ID_TRAY_AUDIO_GAIN => Some(ProfileRef::Audio),
+        _ => None,
+    }
+}
+
+pub fn gain_value_id(id: i32) -> i32 {
+    match id {
+        ID_MIC_GAIN => ID_MIC_GAIN_VALUE,
+        ID_TRAY_AREA_GAIN => ID_TRAY_AREA_GAIN_VALUE,
+        ID_TRAY_VIDEO_GAIN => ID_TRAY_VIDEO_GAIN_VALUE,
+        ID_TRAY_AUDIO_GAIN => ID_TRAY_AUDIO_GAIN_VALUE,
+        _ => ID_MIC_GAIN_VALUE,
+    }
+}
+
 pub fn history_click(id: i32) -> Option<(usize, HistoryClick)> {
     let index = |base| {
         let index = id - base;
@@ -81,25 +127,41 @@ pub const ID_HIGHLIGHT: i32 = 156;
 pub const ID_NOTIFY: i32 = 157;
 pub const ID_NO_SIGNAL: i32 = 158;
 pub const ID_CARD: i32 = 159;
-pub const ID_DYN_AREA_FORMAT: i32 = 160;
-pub const ID_DYN_AREA_FPS_VALUE: i32 = 165;
-pub const ID_DYN_AREA_DEVICE: i32 = 168;
-pub const ID_DYN_AREA_PRESET: i32 = 169;
-pub const ID_DYN_VIDEO_FORMAT: i32 = 170;
-pub const ID_DYN_VIDEO_FPS_VALUE: i32 = 175;
-pub const ID_DYN_VIDEO_DEVICE: i32 = 178;
-pub const ID_DYN_VIDEO_PRESET: i32 = 179;
+pub const ID_TRAY_AREA_FORMAT: i32 = 160;
+pub const ID_TRAY_AREA_FPS_VALUE: i32 = 165;
+pub const ID_TRAY_AREA_DEVICE: i32 = 168;
+pub const ID_TRAY_AREA_PRESET: i32 = 169;
+pub const ID_TRAY_VIDEO_FORMAT: i32 = 170;
+pub const ID_TRAY_VIDEO_FPS_VALUE: i32 = 175;
+pub const ID_TRAY_VIDEO_DEVICE: i32 = 178;
+pub const ID_TRAY_VIDEO_PRESET: i32 = 179;
 pub const ID_THREADS: i32 = 180;
 pub const ID_AREA_HEADING: i32 = 181;
 pub const ID_VIDEO_HEADING: i32 = 182;
 pub const ID_THREADS_HEADING: i32 = 183;
 pub const ID_SCALE_HEADING: i32 = 184;
 pub const ID_SCALE: i32 = 185;
-pub const ID_DYN_AUDIO_SYSTEM: i32 = 190;
-pub const ID_DYN_AUDIO_MIC: i32 = 191;
-pub const ID_DYN_AUDIO_DEVICE: i32 = 192;
-pub const ID_DYN_AUDIO_HEADING: i32 = 193;
+pub const ID_TRAY_AUDIO_SYSTEM: i32 = 190;
+pub const ID_TRAY_AUDIO_MIC: i32 = 191;
+pub const ID_TRAY_AUDIO_DEVICE: i32 = 192;
+pub const ID_TRAY_AUDIO_HEADING: i32 = 193;
+pub const ID_MIC_GAIN: i32 = 194;
+pub const ID_TRAY_AREA_GAIN: i32 = 195;
+pub const ID_TRAY_VIDEO_GAIN: i32 = 196;
+pub const ID_TRAY_AUDIO_GAIN: i32 = 197;
+pub const ID_MIC_GAIN_VALUE: i32 = 198;
+pub const ID_TRAY_AREA_GAIN_VALUE: i32 = 199;
+pub const ID_TRAY_VIDEO_GAIN_VALUE: i32 = 207;
+pub const ID_TRAY_AUDIO_GAIN_VALUE: i32 = 208;
+pub const MIC_GAIN_MAX: u32 = 300;
+const PRESET_ITEMS: &[&str] = &["Quality", "Balance", "Speed", "Custom"];
+const PRESET_CUSTOM: usize = 3;
 pub use crate::theme::{ACCENT, ACCENT_DEEP, BACKGROUND, DISABLED, MIST, TEXT};
+
+const WINDOW_WIDTH: i32 = 760;
+/// Tallest page (Settings) plus its bottom margin. Both pages use it, so switching
+/// tabs never changes the window height and new settings never grow the window.
+const WINDOW_HEIGHT: i32 = 1117;
 
 struct Place {
     id: i32,
@@ -116,76 +178,84 @@ const fn p(id: i32, x: i32, y: i32, w: i32, h: i32) -> Place {
 const TABS: [Place; 4] = [
     p(ID_TAB, 12, 10, 110, 32),
     p(ID_SETTINGS_TAB, 126, 10, 110, 32),
-    p(ID_REFRESH, 468, 10, 100, 32),
-    p(ID_ABOUT, 580, 10, 32, 32),
+    p(ID_REFRESH, 592, 10, 100, 32),
+    p(ID_ABOUT, 700, 10, 32, 32),
 ];
-const CAPTURE: [Place; 23] = [
-    p(ID_FORMAT, 28, 58, 184, 26),
-    p(ID_FORMAT + 1, 222, 58, 184, 26),
-    p(ID_FORMAT + 2, 416, 58, 184, 26),
-    p(ID_PRESET, 28, 96, 280, 300),
-    p(ID_RESOLUTION, 320, 96, 280, 300),
-    p(ID_FPS, 28, 136, 480, 28),
-    p(ID_FPS_VALUE, 520, 140, 80, 24),
-    p(ID_SYSTEM_AUDIO, 28, 178, 220, 26),
+const CAPTURE: [Place; 25] = [
+    p(ID_FORMAT, 28, 58, 228, 26),
+    p(ID_FORMAT + 1, 264, 58, 228, 26),
+    p(ID_FORMAT + 2, 500, 58, 228, 26),
+    p(ID_PRESET, 28, 96, 346, 300),
+    p(ID_RESOLUTION, 386, 96, 346, 300),
+    p(ID_FPS, 28, 136, 616, 28),
+    p(ID_FPS_VALUE, 652, 140, 80, 24),
+    p(ID_SYSTEM_AUDIO, 28, 178, 704, 26),
     p(ID_MIC, 28, 208, 160, 26),
-    p(ID_MIC_DEVICE, 196, 207, 404, 300),
-    p(ID_SHOT_LABEL, 28, 252, 572, 22),
-    p(ID_SHOT_SCREEN, 28, 278, 184, 36),
-    p(ID_SHOT_SOURCE, 220, 278, 184, 36),
-    p(ID_SHOT_REGION, 412, 278, 188, 36),
-    p(ID_CAPTURE_LABEL, 28, 326, 572, 22),
-    p(ID_CAPTURE_SCREEN, 28, 352, 184, 36),
-    p(ID_CAPTURE_SOURCE, 220, 352, 184, 36),
-    p(ID_CAPTURE_REGION, 412, 352, 188, 36),
-    p(ID_AUDIO_LABEL, 28, 400, 572, 22),
-    p(ID_CAPTURE_AUDIO, 28, 426, 572, 36),
-    p(ID_STOP_LABEL, 28, 474, 572, 22),
-    p(ID_STOP, 28, 500, 572, 36),
-    p(ID_STATUS, 28, 552, 572, 28),
+    p(ID_MIC_DEVICE, 196, 207, 260, 300),
+    p(ID_MIC_GAIN, 464, 206, 180, 28),
+    p(ID_MIC_GAIN_VALUE, 652, 207, 80, 26),
+    p(ID_SHOT_LABEL, 28, 252, 704, 22),
+    p(ID_SHOT_SCREEN, 28, 278, 228, 36),
+    p(ID_SHOT_SOURCE, 264, 278, 228, 36),
+    p(ID_SHOT_REGION, 500, 278, 228, 36),
+    p(ID_CAPTURE_LABEL, 28, 326, 704, 22),
+    p(ID_CAPTURE_SCREEN, 28, 352, 228, 36),
+    p(ID_CAPTURE_SOURCE, 264, 352, 228, 36),
+    p(ID_CAPTURE_REGION, 500, 352, 228, 36),
+    p(ID_AUDIO_LABEL, 28, 400, 704, 22),
+    p(ID_CAPTURE_AUDIO, 28, 426, 704, 36),
+    p(ID_STOP_LABEL, 28, 474, 704, 22),
+    p(ID_STOP, 28, 500, 704, 36),
+    p(ID_STATUS, 28, 552, 704, 28),
 ];
 
-const SETTINGS: [Place; 40] = [
-    p(ID_AUTOSTART, 28, 56, 572, 26),
-    p(ID_START_MINIMIZED, 28, 87, 572, 26),
-    p(ID_HIDE_ACTIVE, 28, 118, 572, 26),
-    p(ID_CLOSE_TRAY, 28, 149, 572, 26),
-    p(ID_CLIPBOARD, 28, 180, 572, 26),
-    p(ID_TRAY_CAPTURE, 28, 211, 572, 26),
-    p(ID_HIGHLIGHT, 28, 255, 572, 26),
-    p(ID_NOTIFY, 28, 286, 572, 26),
-    p(ID_NO_SIGNAL, 28, 317, 572, 26),
-    p(ID_CARD, 28, 348, 572, 26),
-    p(ID_AREA_HEADING, 28, 434, 400, 24),
-    p(ID_DYN_AREA_FORMAT, 28, 460, 184, 26),
-    p(ID_DYN_AREA_FORMAT + 1, 222, 460, 184, 26),
-    p(ID_DYN_AREA_FORMAT + 2, 416, 460, 184, 26),
-    p(ID_DYN_AREA_PRESET, 28, 498, 280, 300),
-    p(ID_DYN_AREA_FORMAT + 3, 320, 498, 280, 300),
-    p(ID_DYN_AREA_FORMAT + 4, 28, 536, 480, 28),
-    p(ID_DYN_AREA_FPS_VALUE, 520, 540, 80, 24),
-    p(ID_DYN_AREA_FORMAT + 6, 28, 576, 240, 26),
-    p(ID_DYN_AREA_FORMAT + 7, 28, 608, 160, 26),
-    p(ID_DYN_AREA_DEVICE, 196, 607, 404, 300),
-    p(ID_VIDEO_HEADING, 28, 664, 400, 24),
-    p(ID_DYN_VIDEO_FORMAT, 28, 690, 184, 26),
-    p(ID_DYN_VIDEO_FORMAT + 1, 222, 690, 184, 26),
-    p(ID_DYN_VIDEO_FORMAT + 2, 416, 690, 184, 26),
-    p(ID_DYN_VIDEO_PRESET, 28, 728, 280, 300),
-    p(ID_DYN_VIDEO_FORMAT + 3, 320, 728, 280, 300),
-    p(ID_DYN_VIDEO_FORMAT + 4, 28, 766, 480, 28),
-    p(ID_DYN_VIDEO_FPS_VALUE, 520, 770, 80, 24),
-    p(ID_DYN_VIDEO_FORMAT + 6, 28, 806, 240, 26),
-    p(ID_DYN_VIDEO_FORMAT + 7, 28, 838, 160, 26),
-    p(ID_DYN_VIDEO_DEVICE, 196, 837, 404, 300),
-    p(ID_DYN_AUDIO_HEADING, 28, 894, 400, 24),
-    p(ID_DYN_AUDIO_SYSTEM, 28, 920, 240, 26),
-    p(ID_DYN_AUDIO_MIC, 28, 952, 160, 26),
-    p(ID_DYN_AUDIO_DEVICE, 196, 951, 404, 300),
-    p(ID_THREADS_HEADING, 28, 1012, 250, 24),
-    p(ID_THREADS, 28, 1038, 180, 300),
-    p(ID_SCALE_HEADING, 320, 1012, 250, 24),
-    p(ID_SCALE, 320, 1038, 180, 300),
+const SETTINGS: [Place; 46] = [
+    p(ID_AUTOSTART, 28, 56, 704, 26),
+    p(ID_START_MINIMIZED, 28, 87, 704, 26),
+    p(ID_HIDE_ACTIVE, 28, 118, 704, 26),
+    p(ID_CLOSE_TRAY, 28, 149, 704, 26),
+    p(ID_CLIPBOARD, 28, 180, 704, 26),
+    p(ID_TRAY_CAPTURE, 28, 211, 704, 26),
+    p(ID_HIGHLIGHT, 28, 255, 704, 26),
+    p(ID_NOTIFY, 28, 286, 704, 26),
+    p(ID_NO_SIGNAL, 28, 317, 704, 26),
+    p(ID_CARD, 28, 348, 704, 26),
+    p(ID_AREA_HEADING, 28, 434, 704, 24),
+    p(ID_TRAY_AREA_FORMAT, 28, 460, 228, 26),
+    p(ID_TRAY_AREA_FORMAT + 1, 264, 460, 228, 26),
+    p(ID_TRAY_AREA_FORMAT + 2, 500, 460, 228, 26),
+    p(ID_TRAY_AREA_PRESET, 28, 498, 346, 300),
+    p(ID_TRAY_AREA_FORMAT + 3, 386, 498, 346, 300),
+    p(ID_TRAY_AREA_FORMAT + 4, 28, 536, 616, 28),
+    p(ID_TRAY_AREA_FPS_VALUE, 652, 540, 80, 24),
+    p(ID_TRAY_AREA_FORMAT + 6, 28, 576, 704, 26),
+    p(ID_TRAY_AREA_FORMAT + 7, 28, 608, 160, 26),
+    p(ID_TRAY_AREA_DEVICE, 196, 607, 260, 300),
+    p(ID_TRAY_AREA_GAIN, 464, 606, 180, 28),
+    p(ID_TRAY_AREA_GAIN_VALUE, 652, 607, 80, 26),
+    p(ID_VIDEO_HEADING, 28, 664, 704, 24),
+    p(ID_TRAY_VIDEO_FORMAT, 28, 690, 228, 26),
+    p(ID_TRAY_VIDEO_FORMAT + 1, 264, 690, 228, 26),
+    p(ID_TRAY_VIDEO_FORMAT + 2, 500, 690, 228, 26),
+    p(ID_TRAY_VIDEO_PRESET, 28, 728, 346, 300),
+    p(ID_TRAY_VIDEO_FORMAT + 3, 386, 728, 346, 300),
+    p(ID_TRAY_VIDEO_FORMAT + 4, 28, 766, 616, 28),
+    p(ID_TRAY_VIDEO_FPS_VALUE, 652, 770, 80, 24),
+    p(ID_TRAY_VIDEO_FORMAT + 6, 28, 806, 704, 26),
+    p(ID_TRAY_VIDEO_FORMAT + 7, 28, 838, 160, 26),
+    p(ID_TRAY_VIDEO_DEVICE, 196, 837, 260, 300),
+    p(ID_TRAY_VIDEO_GAIN, 464, 836, 180, 28),
+    p(ID_TRAY_VIDEO_GAIN_VALUE, 652, 837, 80, 26),
+    p(ID_TRAY_AUDIO_HEADING, 28, 894, 704, 24),
+    p(ID_TRAY_AUDIO_SYSTEM, 28, 920, 704, 26),
+    p(ID_TRAY_AUDIO_MIC, 28, 952, 160, 26),
+    p(ID_TRAY_AUDIO_DEVICE, 196, 951, 260, 300),
+    p(ID_TRAY_AUDIO_GAIN, 464, 950, 180, 28),
+    p(ID_TRAY_AUDIO_GAIN_VALUE, 652, 951, 80, 26),
+    p(ID_THREADS_HEADING, 28, 1012, 346, 24),
+    p(ID_THREADS, 28, 1038, 346, 300),
+    p(ID_SCALE_HEADING, 386, 1012, 346, 24),
+    p(ID_SCALE, 386, 1038, 346, 300),
 ];
 
 pub struct Controls {
@@ -196,9 +266,10 @@ pub struct Controls {
     pub values: Vec<(i32, HWND)>,
     pub page: usize,
     pub font: HFONT,
+    bold: HFONT,
     pub format_index: usize,
-    pub dyn_area_format_index: usize,
-    pub dyn_video_format_index: usize,
+    pub tray_area_format_index: usize,
+    pub tray_video_format_index: usize,
     hwnd: HWND,
     scale_percent: u32,
     scale_setting: u32,
@@ -215,9 +286,10 @@ impl Controls {
             values: Vec::new(),
             page: 0,
             font: HFONT::default(),
+            bold: HFONT::default(),
             format_index: 0,
-            dyn_area_format_index: 1,
-            dyn_video_format_index: 0,
+            tray_area_format_index: 1,
+            tray_video_format_index: 0,
             hwnd,
             scale_percent: 100,
             scale_setting: u32::MAX,
@@ -298,7 +370,8 @@ impl Controls {
     }
 
     pub fn build(&mut self, settings: &mut Settings) {
-        self.font = scaled_font(self.scale_percent);
+        self.font = scaled_font(self.scale_percent, FW_NORMAL.0 as i32);
+        self.bold = scaled_font(self.scale_percent, FW_BOLD.0 as i32);
         let style = WINDOW_STYLE(WS_TABSTOP.0 | BS_OWNERDRAW as u32);
         self.tab = self.create_control(
             w!("BUTTON"),
@@ -335,7 +408,7 @@ impl Controls {
                 0,
             );
         }
-        self.combo(ID_PRESET, &["Quality", "Balance", "Speed"], 0);
+        self.combo(ID_PRESET, PRESET_ITEMS, 0);
         self.combo(
             ID_RESOLUTION,
             &["2160 (4K)", "1440 (2K)", "1080 (FHD)", "720", "480", "360"],
@@ -386,6 +459,7 @@ impl Controls {
             0,
         );
         self.combo(ID_MIC_DEVICE, &["Auto"], 0);
+        self.mic_gain_control(ID_MIC_GAIN, ID_MIC_GAIN_VALUE, 0);
         for (id, text) in [
             (ID_SHOT_LABEL, "Screenshot:"),
             (ID_CAPTURE_LABEL, "Capture:"),
@@ -526,7 +600,7 @@ impl Controls {
             "Tray audio recording",
             WINDOW_STYLE(0),
             WINDOW_EX_STYLE(0),
-            ID_DYN_AUDIO_HEADING,
+            ID_TRAY_AUDIO_HEADING,
             1,
         );
         self.create_control(
@@ -534,7 +608,7 @@ impl Controls {
             "System audio",
             WINDOW_STYLE(BS_AUTOCHECKBOX as u32),
             WINDOW_EX_STYLE(0),
-            ID_DYN_AUDIO_SYSTEM,
+            ID_TRAY_AUDIO_SYSTEM,
             1,
         );
         self.create_control(
@@ -542,12 +616,13 @@ impl Controls {
             "Microphone",
             WINDOW_STYLE(BS_AUTOCHECKBOX as u32),
             WINDOW_EX_STYLE(0),
-            ID_DYN_AUDIO_MIC,
+            ID_TRAY_AUDIO_MIC,
             1,
         );
-        self.combo(ID_DYN_AUDIO_DEVICE, &["Auto"], 1);
-        self.dynamic_controls(true);
-        self.dynamic_controls(false);
+        self.combo(ID_TRAY_AUDIO_DEVICE, &["Auto"], 1);
+        self.mic_gain_control(ID_TRAY_AUDIO_GAIN, ID_TRAY_AUDIO_GAIN_VALUE, 1);
+        self.tray_controls(true);
+        self.tray_controls(false);
         self.combo(ID_THREADS, &["Auto", "1", "2", "4"], 1);
         self.combo(
             ID_SCALE,
@@ -587,11 +662,11 @@ impl Controls {
         };
     }
 
-    fn dynamic_controls(&mut self, area: bool) {
+    fn tray_controls(&mut self, area: bool) {
         let base = if area {
-            ID_DYN_AREA_FORMAT
+            ID_TRAY_AREA_FORMAT
         } else {
-            ID_DYN_VIDEO_FORMAT
+            ID_TRAY_VIDEO_FORMAT
         };
         for (i, text) in ["MKV", "GIF", "WebP"].iter().enumerate() {
             self.create_control(
@@ -603,7 +678,7 @@ impl Controls {
                 1,
             );
         }
-        self.combo(base + 9, &["Quality", "Balance", "Speed"], 1);
+        self.combo(base + 9, PRESET_ITEMS, 1);
         self.combo(
             base + 3,
             &["2160 (4K)", "1440 (2K)", "1080 (FHD)", "720", "480", "360"],
@@ -653,6 +728,41 @@ impl Controls {
             1,
         );
         self.combo(base + 8, &["Auto"], 1);
+        let (gain, value) = if area {
+            (ID_TRAY_AREA_GAIN, ID_TRAY_AREA_GAIN_VALUE)
+        } else {
+            (ID_TRAY_VIDEO_GAIN, ID_TRAY_VIDEO_GAIN_VALUE)
+        };
+        self.mic_gain_control(gain, value, 1);
+    }
+
+    fn mic_gain_control(&mut self, slider: i32, value: i32, page: usize) {
+        let trackbar = self.create_control(
+            TRACKBAR_CLASS,
+            "",
+            WINDOW_STYLE(TBS_HORZ | TBS_AUTOTICKS),
+            WINDOW_EX_STYLE(0),
+            slider,
+            page,
+        );
+        unsafe {
+            // SAFETY: The target is a window this program created. Any pointer in the message addresses memory that outlives the call.
+            SendMessageW(
+                trackbar,
+                TBM_SETRANGE,
+                WPARAM(1),
+                LPARAM(((MIC_GAIN_MAX as i32) << 16) as isize),
+            );
+            SendMessageW(trackbar, TBM_SETTICFREQ, WPARAM(25), LPARAM(0));
+        }
+        self.create_control(
+            w!("STATIC"),
+            "Mic 100%",
+            WINDOW_STYLE(0),
+            WINDOW_EX_STYLE(0),
+            value,
+            page,
+        );
     }
 
     pub fn show_page(&mut self, page: usize) {
@@ -684,9 +794,21 @@ impl Controls {
             // SAFETY: The HWND is a window this program created.
             InvalidateRect(self.hwnd, None, true)
         };
+        // The window clips children, so invalidating it leaves the tab buttons
+        // showing the previous page. They have to be redrawn on their own.
+        for hwnd in [self.tab, self.settings_tab] {
+            unsafe {
+                // SAFETY: Both HWNDs are the tab buttons this window created.
+                RedrawWindow(hwnd, None, None, RDW_INVALIDATE | RDW_UPDATENOW).ok();
+            }
+        }
     }
 
     fn place(&self, place: &Place) {
+        self.place_at(place, place.y * self.scale_percent as i32 / 100);
+    }
+
+    fn place_at(&self, place: &Place, y: i32) {
         let scale = |value: i32| value * self.scale_percent as i32 / 100;
         unsafe {
             // SAFETY: The HWND is a child control of the main window.
@@ -694,7 +816,7 @@ impl Controls {
             MoveWindow(
                 self.get(place.id),
                 scale(place.x),
-                scale(place.y),
+                y,
                 scale(place.w),
                 scale(place.h),
                 true,
@@ -713,10 +835,10 @@ impl Controls {
             }
             for index in 0..HISTORY_COUNT {
                 let y = 588 + index * 28;
-                self.place(&p(ID_HISTORY + index, 28, y, 472, 24));
-                self.place(&p(ID_HISTORY_OPEN + index, 508, y, 24, 24));
-                self.place(&p(ID_HISTORY_COPY + index, 536, y, 24, 24));
-                self.place(&p(ID_HISTORY_REVEAL + index, 564, y, 24, 24));
+                self.place(&p(ID_HISTORY + index, 28, y, 608, 24));
+                self.place(&p(ID_HISTORY_OPEN + index, 644, y, 24, 24));
+                self.place(&p(ID_HISTORY_COPY + index, 676, y, 24, 24));
+                self.place(&p(ID_HISTORY_REVEAL + index, 708, y, 24, 24));
             }
         } else {
             for place in &SETTINGS {
@@ -724,6 +846,14 @@ impl Controls {
             }
         }
         self.sync_history();
+    }
+
+    /// `100` is the list entry labeled "1". Auto stays `0`.
+    pub fn set_interface_scale(&mut self, settings: &mut Settings, scale: u32) {
+        settings.scale = scale;
+        self.select(ID_SCALE, scale_index(scale));
+        self.apply_scale(settings);
+        settings.save();
     }
 
     pub fn apply_scale(&mut self, settings: &Settings) {
@@ -739,7 +869,14 @@ impl Controls {
                 DeleteObject(self.font)
             };
         }
-        self.font = scaled_font(percent);
+        if !self.bold.is_invalid() {
+            unsafe {
+                // SAFETY: This font was created for the window and is no longer selected into a DC.
+                DeleteObject(self.bold)
+            };
+        }
+        self.font = scaled_font(percent, FW_NORMAL.0 as i32);
+        self.bold = scaled_font(percent, FW_BOLD.0 as i32);
         for (_, hwnd) in &self.values {
             unsafe {
                 // SAFETY: The HWND is a child control of the main window, and the font stays alive for that window.
@@ -752,8 +889,8 @@ impl Controls {
 
     fn resize_window(&self) {
         let percent = self.scale_percent;
-        let width = 628 * percent as i32 / 100;
-        let height = 1117 * percent as i32 / 100;
+        let width = WINDOW_WIDTH * percent as i32 / 100;
+        let height = WINDOW_HEIGHT * percent as i32 / 100;
         let mut rect = RECT {
             left: 0,
             top: 0,
@@ -783,14 +920,21 @@ impl Controls {
     pub fn load_ui(&mut self, settings: &Settings) {
         self.format_index = settings.ui.format.index();
         self.load_main_video(&settings.ui);
-        self.load_audio(ID_SYSTEM_AUDIO, ID_MIC, ID_MIC_DEVICE, &settings.ui.audio);
-        self.load_dynamic(settings, true);
-        self.load_dynamic(settings, false);
         self.load_audio(
-            ID_DYN_AUDIO_SYSTEM,
-            ID_DYN_AUDIO_MIC,
-            ID_DYN_AUDIO_DEVICE,
-            &settings.dyn_audio,
+            ID_SYSTEM_AUDIO,
+            ID_MIC,
+            ID_MIC_DEVICE,
+            ID_MIC_GAIN,
+            &settings.ui.audio,
+        );
+        self.load_tray(settings, true);
+        self.load_tray(settings, false);
+        self.load_audio(
+            ID_TRAY_AUDIO_SYSTEM,
+            ID_TRAY_AUDIO_MIC,
+            ID_TRAY_AUDIO_DEVICE,
+            ID_TRAY_AUDIO_GAIN,
+            &settings.tray_audio,
         );
         for (id, value) in [
             (ID_AUTOSTART, settings.autostart),
@@ -818,6 +962,22 @@ impl Controls {
         self.select(ID_SCALE, scale_index(settings.scale));
     }
 
+    pub fn set_microphone_gain(&mut self, id: i32, gain: u32) {
+        let gain = gain.min(MIC_GAIN_MAX);
+        unsafe {
+            // SAFETY: The target is a trackbar this program created. The position is a plain integer.
+            SendMessageW(self.get(id), TBM_SETPOS, WPARAM(1), LPARAM(gain as isize));
+        }
+        self.set_text(gain_value_id(id), &format!("Mic {gain}%"));
+    }
+
+    pub fn microphone_gain(&self, id: i32) -> u32 {
+        unsafe {
+            // SAFETY: The target is a trackbar this program created. TBM_GETPOS returns a plain integer.
+            (SendMessageW(self.get(id), WM_USER, WPARAM(0), LPARAM(0)).0 as u32).min(MIC_GAIN_MAX)
+        }
+    }
+
     pub fn load_main_video(&mut self, settings: &CaptureSettings) {
         let v = settings.video[settings.format.index()];
         self.select(ID_RESOLUTION, resolution_index(v.height));
@@ -835,9 +995,10 @@ impl Controls {
         self.select(ID_PRESET, preset_index(settings.format, v));
     }
 
-    fn load_audio(&mut self, system: i32, mic: i32, device: i32, audio: &AudioSettings) {
+    fn load_audio(&mut self, system: i32, mic: i32, device: i32, gain: i32, audio: &AudioSettings) {
         self.check(system, audio.system);
         self.check(mic, audio.microphone);
+        self.set_microphone_gain(gain, audio.gain);
         let hwnd = self.get(device);
         let selected = if audio.device == "Auto" {
             "Auto".to_string()
@@ -871,18 +1032,18 @@ impl Controls {
         }
     }
 
-    pub fn load_dynamic(&mut self, settings: &Settings, area: bool) {
+    pub fn load_tray(&mut self, settings: &Settings, area: bool) {
         let (base, p) = if area {
-            (ID_DYN_AREA_FORMAT, &settings.dyn_area)
+            (ID_TRAY_AREA_FORMAT, &settings.tray_area)
         } else {
-            (ID_DYN_VIDEO_FORMAT, &settings.dyn_video)
+            (ID_TRAY_VIDEO_FORMAT, &settings.tray_video)
         };
         let format_index = p.format.index();
         let video = p.video[format_index];
         if area {
-            self.dyn_area_format_index = format_index;
+            self.tray_area_format_index = format_index;
         } else {
-            self.dyn_video_format_index = format_index;
+            self.tray_video_format_index = format_index;
         }
         self.select(base + 9, preset_index(p.format, video));
         self.select(base + 3, resolution_index(video.height));
@@ -897,7 +1058,12 @@ impl Controls {
             )
         };
         self.set_text(base + 5, &format!("{} FPS", video.fps));
-        self.load_audio(base + 6, base + 7, base + 8, &p.audio);
+        let gain = if area {
+            ID_TRAY_AREA_GAIN
+        } else {
+            ID_TRAY_VIDEO_GAIN
+        };
+        self.load_audio(base + 6, base + 7, base + 8, gain, &p.audio);
     }
 
     pub fn check(&self, id: i32, checked: bool) {
@@ -940,7 +1106,7 @@ impl Controls {
     }
 
     pub fn refresh_formats(&self) {
-        for base in [ID_FORMAT, ID_DYN_AREA_FORMAT, ID_DYN_VIDEO_FORMAT] {
+        for base in [ID_FORMAT, ID_TRAY_AREA_FORMAT, ID_TRAY_VIDEO_FORMAT] {
             for offset in 0..=2 {
                 unsafe {
                     // SAFETY: The HWND is a child control of the main window.
@@ -1025,6 +1191,7 @@ impl Controls {
             system: self.checked(system),
             microphone: self.checked(mic),
             device: device_id,
+            gain: previous.gain,
         }
     }
 
@@ -1049,13 +1216,13 @@ impl Controls {
             ID_MIC_DEVICE,
             &settings.ui.audio.clone(),
         );
-        settings.dyn_area = self.read_dynamic(settings, true);
-        settings.dyn_video = self.read_dynamic(settings, false);
-        settings.dyn_audio = self.audio_from(
-            ID_DYN_AUDIO_SYSTEM,
-            ID_DYN_AUDIO_MIC,
-            ID_DYN_AUDIO_DEVICE,
-            &settings.dyn_audio.clone(),
+        settings.tray_area = self.read_tray(settings, true);
+        settings.tray_video = self.read_tray(settings, false);
+        settings.tray_audio = self.audio_from(
+            ID_TRAY_AUDIO_SYSTEM,
+            ID_TRAY_AUDIO_MIC,
+            ID_TRAY_AUDIO_DEVICE,
+            &settings.tray_audio.clone(),
         );
         settings.autostart = self.checked(ID_AUTOSTART);
         settings.start_minimized = self.checked(ID_START_MINIMIZED);
@@ -1078,21 +1245,21 @@ impl Controls {
         self.apply_scale(settings);
     }
 
-    fn read_dynamic(&mut self, settings: &Settings, area: bool) -> CaptureSettings {
+    fn read_tray(&mut self, settings: &Settings, area: bool) -> CaptureSettings {
         let base = if area {
-            ID_DYN_AREA_FORMAT
+            ID_TRAY_AREA_FORMAT
         } else {
-            ID_DYN_VIDEO_FORMAT
+            ID_TRAY_VIDEO_FORMAT
         };
         let previous = if area {
-            &settings.dyn_area
+            &settings.tray_area
         } else {
-            &settings.dyn_video
+            &settings.tray_video
         };
         let format_index = if area {
-            self.dyn_area_format_index
+            self.tray_area_format_index
         } else {
-            self.dyn_video_format_index
+            self.tray_video_format_index
         };
         let format = Format::from_index(format_index);
         let fps = unsafe {
@@ -1166,9 +1333,9 @@ impl Controls {
     pub fn refresh_all_devices(&mut self, settings: &mut Settings) {
         for id in [
             ID_MIC_DEVICE,
-            ID_DYN_AREA_DEVICE,
-            ID_DYN_VIDEO_DEVICE,
-            ID_DYN_AUDIO_DEVICE,
+            ID_TRAY_AREA_DEVICE,
+            ID_TRAY_VIDEO_DEVICE,
+            ID_TRAY_AUDIO_DEVICE,
         ] {
             self.refresh_devices(id);
         }
@@ -1177,29 +1344,46 @@ impl Controls {
 
     pub fn apply_preset(&mut self, settings: &mut Settings) {
         let format = Format::from_index(self.format_index);
+        if self.selected(ID_PRESET) == PRESET_CUSTOM {
+            self.select(
+                ID_PRESET,
+                preset_index(format, settings.ui.video[format.index()]),
+            );
+            return;
+        }
         settings.ui.video[format.index()] = preset_value(format, self.selected(ID_PRESET));
         self.load_main_video(&settings.ui);
         self.read_ui(settings);
     }
 
-    pub fn apply_dynamic_preset(&mut self, settings: &mut Settings, area: bool) {
+    pub fn apply_tray_preset(&mut self, settings: &mut Settings, area: bool) {
         let base = if area {
-            ID_DYN_AREA_FORMAT
+            ID_TRAY_AREA_FORMAT
         } else {
-            ID_DYN_VIDEO_FORMAT
+            ID_TRAY_VIDEO_FORMAT
         };
         let format_index = if area {
-            self.dyn_area_format_index
+            self.tray_area_format_index
         } else {
-            self.dyn_video_format_index
+            self.tray_video_format_index
         };
-        let value = preset_value(Format::from_index(format_index), self.selected(base + 9));
-        if area {
-            settings.dyn_area.video[format_index] = value;
+        let format = Format::from_index(format_index);
+        let video = if area {
+            settings.tray_area.video[format_index]
         } else {
-            settings.dyn_video.video[format_index] = value;
+            settings.tray_video.video[format_index]
+        };
+        if self.selected(base + 9) == PRESET_CUSTOM {
+            self.select(base + 9, preset_index(format, video));
+            return;
         }
-        self.load_dynamic(settings, area);
+        let value = preset_value(format, self.selected(base + 9));
+        if area {
+            settings.tray_area.video[format_index] = value;
+        } else {
+            settings.tray_video.video[format_index] = value;
+        }
+        self.load_tray(settings, area);
         self.read_ui(settings);
     }
 
@@ -1207,8 +1391,10 @@ impl Controls {
         unsafe {
             // SAFETY: The HWND is a child control created with the main window.
 
-            EnableWindow(self.tab, idle);
-            EnableWindow(self.settings_tab, idle);
+            // Both pages stay reachable while recording so every microphone volume
+            // control can be used without stopping the take.
+            EnableWindow(self.tab, idle || recording);
+            EnableWindow(self.settings_tab, idle || recording);
             EnableWindow(self.get(ID_REFRESH), idle);
         }
         for h in self.capture.iter().chain(&self.settings) {
@@ -1218,9 +1404,13 @@ impl Controls {
             let screenshot = *h == self.get(ID_SHOT_SCREEN)
                 || *h == self.get(ID_SHOT_SOURCE)
                 || *h == self.get(ID_SHOT_REGION);
+            let gain = self
+                .values
+                .iter()
+                .any(|(id, hwnd)| *hwnd == *h && (is_mic_gain(*id) || is_mic_gain_value(*id)));
             unsafe {
                 // SAFETY: The HWND is a child control created with the main window.
-                EnableWindow(*h, idle || (recording && screenshot))
+                EnableWindow(*h, idle || (recording && (screenshot || gain)))
             };
         }
         unsafe {
@@ -1232,7 +1422,7 @@ impl Controls {
     }
 }
 
-fn scaled_font(percent: u32) -> HFONT {
+fn scaled_font(percent: u32, weight: i32) -> HFONT {
     unsafe {
         // SAFETY: The face name is NUL-terminated and outlives the call. The font is stored and later deleted.
 
@@ -1241,7 +1431,7 @@ fn scaled_font(percent: u32) -> HFONT {
             0,
             0,
             0,
-            FW_NORMAL.0 as i32,
+            weight,
             0,
             0,
             0,
@@ -1281,7 +1471,7 @@ fn preset_index(format: Format, video: VideoSettings) -> usize {
         (_, 720, 60) => 0,
         (_, 480, 30) => 1,
         (_, 360, 30) => 2,
-        _ => usize::MAX,
+        _ => PRESET_CUSTOM,
     }
 }
 
@@ -1342,10 +1532,10 @@ pub fn draw_button(lparam: LPARAM, controls: &Controls) {
         }
         let radio = if (ID_FORMAT..=ID_FORMAT + 2).contains(&id) {
             Some((ID_FORMAT, controls.format_index))
-        } else if (ID_DYN_AREA_FORMAT..=ID_DYN_AREA_FORMAT + 2).contains(&id) {
-            Some((ID_DYN_AREA_FORMAT, controls.dyn_area_format_index))
-        } else if (ID_DYN_VIDEO_FORMAT..=ID_DYN_VIDEO_FORMAT + 2).contains(&id) {
-            Some((ID_DYN_VIDEO_FORMAT, controls.dyn_video_format_index))
+        } else if (ID_TRAY_AREA_FORMAT..=ID_TRAY_AREA_FORMAT + 2).contains(&id) {
+            Some((ID_TRAY_AREA_FORMAT, controls.tray_area_format_index))
+        } else if (ID_TRAY_VIDEO_FORMAT..=ID_TRAY_VIDEO_FORMAT + 2).contains(&id) {
+            Some((ID_TRAY_VIDEO_FORMAT, controls.tray_video_format_index))
         } else {
             None
         };
@@ -1390,48 +1580,64 @@ pub fn draw_button(lparam: LPARAM, controls: &Controls) {
             SelectObject(item.hDC, old);
             return;
         }
+        let tab = id == ID_TAB || id == ID_SETTINGS_TAB;
         let active_tab =
             (id == ID_TAB && controls.page == 0) || (id == ID_SETTINGS_TAB && controls.page == 1);
         let enabled = IsWindowEnabled(item.hwndItem).as_bool();
+        let resting = tab && !active_tab && enabled;
         let color = if !enabled {
             DISABLED
         } else if id == ID_STOP {
             ACCENT_DEEP
-        } else if id == ID_TAB || id == ID_SETTINGS_TAB {
-            if active_tab {
-                ACCENT
-            } else {
-                MIST
-            }
+        } else if resting {
+            BACKGROUND
         } else {
             ACCENT
         };
         let parent = CreateSolidBrush(BACKGROUND);
         FillRect(item.hDC, &item.rcItem, parent);
         DeleteObject(parent);
-        let brush = CreateSolidBrush(color);
-        let pen = CreatePen(PS_SOLID, 1, color);
-        let old_brush = SelectObject(item.hDC, brush);
-        let old_pen = SelectObject(item.hDC, pen);
         let radius = (12 * controls.scale_percent as i32 / 100).max(4);
-        RoundRect(
-            item.hDC,
-            item.rcItem.left,
-            item.rcItem.top,
-            item.rcItem.right,
-            item.rcItem.bottom,
-            radius,
-            radius,
-        );
-        SelectObject(item.hDC, old_brush);
-        SelectObject(item.hDC, old_pen);
-        DeleteObject(brush);
-        DeleteObject(pen);
+        if resting {
+            let pen = CreatePen(PS_SOLID, 1, MIST);
+            let old_brush = SelectObject(item.hDC, GetStockObject(NULL_BRUSH));
+            let old_pen = SelectObject(item.hDC, pen);
+            RoundRect(
+                item.hDC,
+                item.rcItem.left,
+                item.rcItem.top,
+                item.rcItem.right,
+                item.rcItem.bottom,
+                radius,
+                radius,
+            );
+            SelectObject(item.hDC, old_brush);
+            SelectObject(item.hDC, old_pen);
+            DeleteObject(pen);
+        } else {
+            let brush = CreateSolidBrush(color);
+            let pen = CreatePen(PS_SOLID, 1, color);
+            let old_brush = SelectObject(item.hDC, brush);
+            let old_pen = SelectObject(item.hDC, pen);
+            RoundRect(
+                item.hDC,
+                item.rcItem.left,
+                item.rcItem.top,
+                item.rcItem.right,
+                item.rcItem.bottom,
+                radius,
+                radius,
+            );
+            SelectObject(item.hDC, old_brush);
+            SelectObject(item.hDC, old_pen);
+            DeleteObject(brush);
+            DeleteObject(pen);
+        }
         let mut text = vec![0u16; 256];
         let len = GetWindowTextW(item.hwndItem, &mut text) as usize;
         text.truncate(len);
         SetBkMode(item.hDC, TRANSPARENT);
-        let on_light = !enabled || ((id == ID_TAB || id == ID_SETTINGS_TAB) && !active_tab);
+        let on_light = !enabled || resting;
         SetTextColor(
             item.hDC,
             if on_light {
@@ -1440,7 +1646,14 @@ pub fn draw_button(lparam: LPARAM, controls: &Controls) {
                 crate::theme::ON_ACCENT
             },
         );
-        let old = SelectObject(item.hDC, controls.font);
+        let old = SelectObject(
+            item.hDC,
+            if tab && active_tab {
+                controls.bold
+            } else {
+                controls.font
+            },
+        );
         DrawTextW(
             item.hDC,
             &mut text,
@@ -1568,6 +1781,74 @@ mod layout_tests {
         assert!(
             y(ID_AREA_HEADING) >= last + 26 + 28,
             "Tray area recording must sit clear of the last checkbox"
+        );
+    }
+
+    #[test]
+    fn each_profile_keeps_its_own_microphone_slider() {
+        use crate::ProfileRef;
+
+        for source in ProfileRef::ALL {
+            let id = super::microphone_control(source);
+            assert_eq!(super::profile_for_microphone(id), Some(source));
+        }
+        assert_eq!(super::profile_for_microphone(super::ID_STOP), None);
+    }
+
+    #[test]
+    fn microphone_volume_has_a_precise_range_past_one_hundred() {
+        assert_eq!(super::MIC_GAIN_MAX, 300);
+        assert!(
+            super::MIC_GAIN_MAX > 100,
+            "the volume range must offer more than 100%"
+        );
+        assert!(super::is_mic_gain(super::ID_TRAY_AREA_GAIN));
+        assert!(super::is_mic_gain_value(super::ID_TRAY_AREA_GAIN_VALUE));
+    }
+
+    #[test]
+    fn settings_off_a_preset_read_as_custom() {
+        use crate::media::{Format, VideoSettings};
+
+        assert_eq!(
+            super::preset_index(
+                Format::Mkv,
+                VideoSettings {
+                    height: 1440,
+                    fps: 60,
+                }
+            ),
+            super::PRESET_CUSTOM
+        );
+        assert_eq!(
+            super::preset_index(
+                Format::Gif,
+                VideoSettings {
+                    height: 720,
+                    fps: 50,
+                }
+            ),
+            super::PRESET_CUSTOM
+        );
+        assert_eq!(
+            super::preset_index(
+                Format::Mkv,
+                VideoSettings {
+                    height: 1080,
+                    fps: 60,
+                }
+            ),
+            0
+        );
+        assert_eq!(
+            super::preset_index(
+                Format::Webp,
+                VideoSettings {
+                    height: 360,
+                    fps: 30,
+                }
+            ),
+            2
         );
     }
 

@@ -10,7 +10,7 @@ use crate::wide;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -328,7 +328,12 @@ struct AudioIn {
     _stream: cpal::Stream,
 }
 
-fn open_stream(system: bool, device_name: Option<&str>, clock: Instant) -> Result<AudioIn, String> {
+fn open_stream(
+    system: bool,
+    device_name: Option<&str>,
+    clock: Instant,
+    gain: Arc<AtomicU32>,
+) -> Result<AudioIn, String> {
     let host = cpal::default_host();
     let (device, supported) = if system {
         let device = host
@@ -361,11 +366,17 @@ fn open_stream(system: bool, device_name: Option<&str>, clock: Instant) -> Resul
     let config = supported.config();
     let queue = Arc::new(Mutex::new(AudioQueue::default()));
     let target = queue.clone();
+    // Only the microphone channel has a user-facing gain. System audio stays at unity.
+    let gain = if system {
+        Arc::new(AtomicU32::new(100))
+    } else {
+        gain
+    };
     let stream = match format {
-        SampleFormat::F32 => build::<f32>(&device, config, channels, rate, target, clock),
-        SampleFormat::I16 => build::<i16>(&device, config, channels, rate, target, clock),
-        SampleFormat::I32 => build::<i32>(&device, config, channels, rate, target, clock),
-        SampleFormat::U16 => build::<u16>(&device, config, channels, rate, target, clock),
+        SampleFormat::F32 => build::<f32>(&device, config, channels, rate, target, clock, gain),
+        SampleFormat::I16 => build::<i16>(&device, config, channels, rate, target, clock, gain),
+        SampleFormat::I32 => build::<i32>(&device, config, channels, rate, target, clock, gain),
+        SampleFormat::U16 => build::<u16>(&device, config, channels, rate, target, clock, gain),
         other => Err(format!("Unsupported audio format {other}")),
     }?;
     stream
@@ -377,6 +388,12 @@ fn open_stream(system: bool, device_name: Option<&str>, clock: Instant) -> Resul
     })
 }
 
+fn apply_live_gain(samples: &mut [f32], gain: &AtomicU32) {
+    // Read the shared value for every buffer, so moving the volume control during a
+    // recording changes the next mixed block, not only a later take.
+    geom::apply_gain(samples, gain.load(Ordering::Relaxed));
+}
+
 fn build<T>(
     device: &cpal::Device,
     config: cpal::StreamConfig,
@@ -384,6 +401,7 @@ fn build<T>(
     rate: u32,
     target: Arc<Mutex<AudioQueue>>,
     clock: Instant,
+    gain: Arc<AtomicU32>,
 ) -> Result<cpal::Stream, String>
 where
     T: SizedSample,
@@ -397,7 +415,8 @@ where
                     .iter()
                     .map(|sample| sample.to_sample::<f32>())
                     .collect();
-                let ready = geom::to_stereo_48k(&converted, channels, rate);
+                let mut ready = geom::to_stereo_48k(&converted, channels, rate);
+                apply_live_gain(&mut ready, &gain);
                 let frames = ready.len() / 2;
                 if frames == 0 {
                     return;
@@ -791,13 +810,19 @@ fn prepare(options: &RecordOptions, _stop: &AtomicBool) -> Result<Live, String> 
     let clock = Instant::now();
     let mut inputs = Vec::new();
     if audio_requested && options.profile.audio.system {
-        inputs.push(open_stream(true, None, clock)?);
+        inputs.push(open_stream(
+            true,
+            None,
+            clock,
+            Arc::new(AtomicU32::new(100)),
+        )?);
     }
     if audio_requested && options.profile.audio.microphone {
         inputs.push(open_stream(
             false,
             microphone_name(options).as_deref(),
             clock,
+            options.mic_gain.clone(),
         )?);
     }
     let mut recover = None;
@@ -997,11 +1022,32 @@ pub struct Finalizer {
 #[cfg(test)]
 mod source_card {
     use super::{
-        fit, fit_into, no_signal, signal_present, source_fate, source_row, window_state_usable,
-        SourceFate,
+        apply_live_gain, fit, fit_into, no_signal, signal_present, source_fate, source_row,
+        window_state_usable, SourceFate,
     };
     use crate::media::Frame;
     use crate::settings::Settings;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    #[test]
+    fn the_microphone_volume_is_read_again_for_each_audio_buffer() {
+        let gain = AtomicU32::new(100);
+        let mut at_unity = [0.25f32, -0.5];
+        apply_live_gain(&mut at_unity, &gain);
+        assert_eq!(at_unity, [0.25, -0.5]);
+        let mut doubled = [0.25f32, -0.5];
+        gain.store(200, Ordering::SeqCst);
+        apply_live_gain(&mut doubled, &gain);
+        assert_eq!(doubled, [0.5, -1.0]);
+        let mut tripled = [0.25f32, -0.5];
+        gain.store(300, Ordering::SeqCst);
+        apply_live_gain(&mut tripled, &gain);
+        assert_eq!(tripled, [0.75, -1.5]);
+        let mut muted = [0.25f32, -0.5];
+        gain.store(0, Ordering::SeqCst);
+        apply_live_gain(&mut muted, &gain);
+        assert_eq!(muted, [0.0, 0.0]);
+    }
 
     struct SourceRecording {
         tracked: bool,

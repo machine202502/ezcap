@@ -4,6 +4,8 @@ use ffmpeg::{
 };
 use ffmpeg_next as ffmpeg;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicU32;
+use std::sync::Arc;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
@@ -14,7 +16,7 @@ use windows::Win32::System::Ole::CF_HDROP;
 use windows::Win32::UI::Shell::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Format {
     Mkv,
     Gif,
@@ -47,17 +49,19 @@ impl Format {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct VideoSettings {
     pub height: u32,
     pub fps: u32,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct AudioSettings {
     pub system: bool,
     pub microphone: bool,
     pub device: String,
+    /// Microphone gain in percent for this capture profile. 100 is unity.
+    pub gain: u32,
 }
 
 impl Default for AudioSettings {
@@ -66,6 +70,7 @@ impl Default for AudioSettings {
             system: true,
             microphone: true,
             device: "Auto".into(),
+            gain: 100,
         }
     }
 }
@@ -97,6 +102,9 @@ pub struct RecordOptions {
     pub show_no_signal: bool,
     /// When the signal is gone and recording continues, show the card instead of the last frame.
     pub show_card: bool,
+    /// Microphone gain in percent. Read on every audio callback so a change made while
+    /// recording changes the mix immediately.
+    pub mic_gain: Arc<AtomicU32>,
 }
 
 #[derive(Clone)]
@@ -488,6 +496,28 @@ pub fn reveal_in_folder(path: &Path) -> Result<(), String> {
     }
 }
 
+/// Writes a DROPFILES block for one file into `bytes` bytes of writable memory.
+/// `path` includes its UTF-16 NUL. The block ends with a full UTF-16 NUL so a
+/// parser stops after exactly one file name.
+fn write_file_drop(pointer: *mut u8, bytes: usize, path: &[u16]) {
+    unsafe {
+        // SAFETY: The caller passes a writable block of at least `bytes` bytes, and
+        // `path` is a live UTF-16 buffer. Every write stays inside that block.
+        let drop = DROPFILES {
+            pFiles: std::mem::size_of::<DROPFILES>() as u32,
+            fWide: true.into(),
+            ..Default::default()
+        };
+        std::ptr::write(pointer.cast::<DROPFILES>(), drop);
+        std::ptr::copy_nonoverlapping(
+            path.as_ptr(),
+            pointer.add(std::mem::size_of::<DROPFILES>()).cast::<u16>(),
+            path.len(),
+        );
+        std::ptr::write(pointer.add(bytes - 2).cast::<u16>(), 0u16);
+    }
+}
+
 pub fn copy_file_to_clipboard(path: &Path) -> Result<(), String> {
     // SAFETY: The clipboard is opened and closed on this thread. The drop list is sized to the path and given to the clipboard.
     unsafe {
@@ -501,18 +531,7 @@ pub fn copy_file_to_clipboard(path: &Path) -> Result<(), String> {
         let bytes = std::mem::size_of::<DROPFILES>() + (path.len() + 1) * 2;
         let memory = GlobalAlloc(GMEM_MOVEABLE, bytes).map_err(|e| e.to_string())?;
         let pointer = GlobalLock(memory) as *mut u8;
-        let drop = DROPFILES {
-            pFiles: std::mem::size_of::<DROPFILES>() as u32,
-            fWide: true.into(),
-            ..Default::default()
-        };
-        std::ptr::write(pointer.cast::<DROPFILES>(), drop);
-        std::ptr::copy_nonoverlapping(
-            path.as_ptr(),
-            pointer.add(std::mem::size_of::<DROPFILES>()).cast::<u16>(),
-            path.len(),
-        );
-        std::ptr::write(pointer.add(bytes - 2), 0);
+        write_file_drop(pointer, bytes, &path);
         GlobalUnlock(memory).ok();
         SetClipboardData(CF_HDROP.0 as u32, HANDLE(memory.0)).map_err(|e| e.to_string())?;
         CloseClipboard().ok();
@@ -1891,6 +1910,42 @@ mod tests {
         drop(decoder);
         drop(input);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_copied_file_list_ends_with_a_real_utf16_nul() {
+        use windows::Win32::UI::Shell::{DragQueryFileW, HDROP};
+        let name = r"C:\Pictures\ezcap\Shot.png";
+        let path = name
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>();
+        let bytes = std::mem::size_of::<DROPFILES>() + (path.len() + 1) * 2;
+        // A non-zero fill stands in for the bytes GlobalAlloc hands back. The last
+        // UTF-16 unit must be written completely; a one-byte write leaves a stray
+        // high byte that becomes a second, garbage file name.
+        let mut block = vec![0xFFu8; bytes];
+        write_file_drop(block.as_mut_ptr(), bytes, &path);
+        assert_eq!(
+            &block[bytes - 2..],
+            &[0, 0],
+            "the last UTF-16 unit of the file list was only half written"
+        );
+        let (count, parsed) = unsafe {
+            // SAFETY: The block is copied byte for byte into a global block of the same size, which DragQueryFileW reads and this test frees.
+            let memory = GlobalAlloc(GMEM_MOVEABLE, bytes).unwrap();
+            let pointer = GlobalLock(memory) as *mut u8;
+            std::ptr::copy_nonoverlapping(block.as_ptr(), pointer, bytes);
+            GlobalUnlock(memory).ok();
+            let count = DragQueryFileW(HDROP(memory.0), u32::MAX, None);
+            let mut buffer = vec![0u16; path.len() + 8];
+            let len = DragQueryFileW(HDROP(memory.0), 0, Some(&mut buffer));
+            let parsed = String::from_utf16_lossy(&buffer[..len as usize]);
+            GlobalFree(memory).ok();
+            (count, parsed)
+        };
+        assert_eq!(count, 1, "the shell sees more than one file");
+        assert_eq!(parsed, name);
     }
 
     #[test]

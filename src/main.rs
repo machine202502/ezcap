@@ -12,9 +12,11 @@ mod theme;
 mod ui;
 
 pub(crate) use media::AudioSettings;
-use media::{Format, Profile, Rect};
-pub(crate) use settings::{test_mode, wide, CaptureSettings, Settings};
+use media::{Format, Rect};
+pub(crate) use settings::{test_mode, wide, CaptureSettings, ProfileRef, Settings};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 use std::time::Instant;
 use ui::*;
 use windows::core::{w, PCWSTR, PWSTR};
@@ -23,7 +25,8 @@ use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::*;
 use windows::Win32::UI::Controls::{
-    TaskDialogIndirect, TASKDIALOGCONFIG, TASKDIALOG_NOTIFICATIONS, TDCBF_OK_BUTTON,
+    TaskDialogIndirect, DRAWITEMSTRUCT, MEASUREITEMSTRUCT, ODS_DISABLED, ODS_GRAYED, ODS_SELECTED,
+    ODT_MENU, TASKDIALOGCONFIG, TASKDIALOG_NOTIFICATIONS, TB_THUMBTRACK, TDCBF_OK_BUTTON,
     TDF_ALLOW_DIALOG_CANCELLATION, TDF_ENABLE_HYPERLINKS, TDF_POSITION_RELATIVE_TO_WINDOW,
     TDF_SIZE_TO_CONTENT, TDN_HYPERLINK_CLICKED,
 };
@@ -47,6 +50,7 @@ const ID_TRAY_AUDIO: i32 = 203;
 const ID_TRAY_STOP: i32 = 204;
 const ID_TRAY_EXIT: i32 = 205;
 const ID_TRAY_OPEN: i32 = 206;
+const ID_TRAY_RESET_SCALE: i32 = 207;
 
 static mut APP: *mut App = std::ptr::null_mut();
 
@@ -123,6 +127,18 @@ fn print_window_frame(hwnd: HWND) -> media::Frame {
     unsafe {
         // SAFETY: The HWND belongs to a window this process created. The RECT is a writable local.
 
+        // A centered window runs off the monitor and PrintWindow keeps only the visible part.
+        SetWindowPos(
+            hwnd,
+            None,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOZORDER | SWP_NOSIZE | SWP_NOACTIVATE,
+        )
+        .unwrap();
+        UpdateWindow(hwnd);
         let mut rect = RECT::default();
         GetWindowRect(hwnd, &mut rect).unwrap();
         let width = rect.right - rect.left;
@@ -220,7 +236,13 @@ fn accepts_command(mode: Mode, id: i32, region_open: bool) -> bool {
         || (mode == Mode::Recording && screenshot)
         || matches!(
             id,
-            ID_STOP | ID_TRAY_STOP | ID_TRAY_EXIT | ID_TRAY_OPEN | ID_STATUS | ID_ABOUT
+            ID_STOP
+                | ID_TRAY_STOP
+                | ID_TRAY_EXIT
+                | ID_TRAY_OPEN
+                | ID_TRAY_RESET_SCALE
+                | ID_STATUS
+                | ID_ABOUT
         )
         || ui::history_click(id).is_some()
 }
@@ -246,6 +268,75 @@ enum RecordingKind {
     Video,
     Animation,
     Audio,
+}
+
+/// Whether the picture stored on a profile is part of this take.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Take {
+    Picture,
+    Sound,
+}
+
+/// A control that can start a recording, and the profile tied to that control.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StartPlace {
+    CaptureScreen,
+    CaptureSource,
+    CaptureRegion,
+    CaptureAudio,
+    ShotRegion,
+    TrayArea,
+    TrayVideo,
+    TrayAudio,
+}
+
+fn command_place(id: i32) -> Option<StartPlace> {
+    Some(match id {
+        ID_CAPTURE_SCREEN => StartPlace::CaptureScreen,
+        ID_CAPTURE_SOURCE => StartPlace::CaptureSource,
+        ID_CAPTURE_REGION => StartPlace::CaptureRegion,
+        ID_CAPTURE_AUDIO => StartPlace::CaptureAudio,
+        ID_SHOT_REGION => StartPlace::ShotRegion,
+        ID_TRAY_AREA => StartPlace::TrayArea,
+        ID_TRAY_VIDEO => StartPlace::TrayVideo,
+        ID_TRAY_AUDIO => StartPlace::TrayAudio,
+        _ => return None,
+    })
+}
+
+fn start_plan(place: StartPlace) -> (ProfileRef, Take) {
+    match place {
+        StartPlace::CaptureScreen
+        | StartPlace::CaptureSource
+        | StartPlace::CaptureRegion
+        | StartPlace::ShotRegion => (ProfileRef::Capture, Take::Picture),
+        StartPlace::CaptureAudio => (ProfileRef::Capture, Take::Sound),
+        StartPlace::TrayArea => (ProfileRef::Area, Take::Picture),
+        StartPlace::TrayVideo => (ProfileRef::Video, Take::Picture),
+        StartPlace::TrayAudio => (ProfileRef::Audio, Take::Sound),
+    }
+}
+
+fn overlay_for(place: StartPlace) -> region::Overlay {
+    match place {
+        StartPlace::TrayArea => region::Overlay::Tray,
+        StartPlace::ShotRegion => region::Overlay::Screenshot,
+        _ => region::Overlay::Capture,
+    }
+}
+
+/// Video in the tray area overlay records the whole screen with tray video recording.
+fn area_video_place() -> StartPlace {
+    StartPlace::TrayVideo
+}
+
+fn place_for_source(source: ProfileRef) -> StartPlace {
+    match source {
+        ProfileRef::Capture => StartPlace::CaptureRegion,
+        ProfileRef::Area => StartPlace::TrayArea,
+        ProfileRef::Video => StartPlace::TrayVideo,
+        ProfileRef::Audio => StartPlace::TrayAudio,
+    }
 }
 
 fn recording_kind_for(audio_only: bool, region: bool, format: Format) -> RecordingKind {
@@ -334,7 +425,7 @@ pub(crate) fn notify_region_closed() {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Mode {
     Idle,
     Selecting,
@@ -376,6 +467,8 @@ struct App {
     mode: Mode,
     session: Option<media::Session>,
     finalizer: Option<media::Finalizer>,
+    live_gain: Option<Arc<AtomicU32>>,
+    live_gain_id: Option<i32>,
     started: Option<Instant>,
     saving_started: Option<Instant>,
     tray: NOTIFYICONDATAW,
@@ -393,6 +486,7 @@ struct App {
     outline: outline::RegionOutline,
     record_rect: Option<Rect>,
     region_outline: bool,
+    region_source: ProfileRef,
     recording_kind: RecordingKind,
     saved_path: Option<PathBuf>,
     history: Vec<(PathBuf, String)>,
@@ -409,6 +503,8 @@ impl App {
             mode: Mode::Idle,
             session: None,
             finalizer: None,
+            live_gain: None,
+            live_gain_id: None,
             started: None,
             saving_started: None,
             tray: NOTIFYICONDATAW::default(),
@@ -429,6 +525,7 @@ impl App {
             outline: outline::RegionOutline::new(),
             record_rect: None,
             region_outline: false,
+            region_source: ProfileRef::Capture,
             recording_kind: RecordingKind::Video,
             saved_path: None,
             history: Vec::new(),
@@ -494,6 +591,17 @@ impl App {
         .unwrap();
         unsafe {
             // SAFETY: The menu belongs to this window, and the item text is NUL-terminated for the duration of the call.
+            AppendMenuW(
+                self.tray_menu,
+                MF_STRING,
+                ID_TRAY_RESET_SCALE as usize,
+                w!("Reset Scale"),
+            )
+        }
+        .unwrap();
+        items.push((ID_TRAY_RESET_SCALE, "Reset Scale", MenuGlyph::Scale));
+        unsafe {
+            // SAFETY: The menu belongs to this window, and the item text is NUL-terminated for the duration of the call.
             AppendMenuW(self.tray_menu, MF_STRING, ID_TRAY_EXIT as usize, w!("Exit"))
         }
         .unwrap();
@@ -503,8 +611,9 @@ impl App {
             self.menu_icons.push(bitmap);
             let info = MENUITEMINFOW {
                 cbSize: std::mem::size_of::<MENUITEMINFOW>() as u32,
-                fMask: MIIM_BITMAP,
-                hbmpItem: bitmap,
+                fMask: MIIM_FTYPE | MIIM_DATA,
+                fType: MFT_OWNERDRAW,
+                dwItemData: bitmap.0 as usize,
                 ..Default::default()
             };
             unsafe {
@@ -564,15 +673,15 @@ impl App {
 
     fn command(&mut self, id: i32, notification: u16) {
         if id == ID_TAB || id == ID_SETTINGS_TAB {
-            if self.mode == Mode::Idle {
+            if matches!(self.mode, Mode::Idle | Mode::Recording) {
                 self.controls.show_page(if id == ID_TAB { 0 } else { 1 });
             }
             return;
         }
         if id == ID_MIC_DEVICE
-            || id == ID_DYN_AREA_DEVICE
-            || id == ID_DYN_VIDEO_DEVICE
-            || id == ID_DYN_AUDIO_DEVICE
+            || id == ID_TRAY_AREA_DEVICE
+            || id == ID_TRAY_VIDEO_DEVICE
+            || id == ID_TRAY_AUDIO_DEVICE
         {
             if notification == CBN_DROPDOWN as u16 {
                 self.controls.refresh_devices(id);
@@ -585,18 +694,22 @@ impl App {
         if !accepts_command(self.mode, id, region::active()) {
             return;
         }
+        if let Some(place) = command_place(id) {
+            self.begin(place);
+            return;
+        }
         match id {
             ID_REFRESH => self.controls.refresh_all_devices(&mut self.settings),
             ID_ABOUT => show_about(self.hwnd),
             ID_PRESET if notification == CBN_SELCHANGE as u16 => {
                 self.controls.apply_preset(&mut self.settings)
             }
-            ID_DYN_AREA_PRESET if notification == CBN_SELCHANGE as u16 => {
-                self.controls.apply_dynamic_preset(&mut self.settings, true)
+            ID_TRAY_AREA_PRESET if notification == CBN_SELCHANGE as u16 => {
+                self.controls.apply_tray_preset(&mut self.settings, true)
             }
-            ID_DYN_VIDEO_PRESET if notification == CBN_SELCHANGE as u16 => self
-                .controls
-                .apply_dynamic_preset(&mut self.settings, false),
+            ID_TRAY_VIDEO_PRESET if notification == CBN_SELCHANGE as u16 => {
+                self.controls.apply_tray_preset(&mut self.settings, false)
+            }
             110..=112 => {
                 self.controls.format_index = (id - ID_FORMAT) as usize;
                 self.settings.ui.format = Format::from_index((id - ID_FORMAT) as usize);
@@ -605,18 +718,18 @@ impl App {
                 self.controls.refresh_formats();
             }
             160..=162 => {
-                self.controls.dyn_area_format_index = (id - ID_DYN_AREA_FORMAT) as usize;
-                self.settings.dyn_area.format =
-                    Format::from_index((id - ID_DYN_AREA_FORMAT) as usize);
-                self.controls.load_dynamic(&self.settings, true);
+                self.controls.tray_area_format_index = (id - ID_TRAY_AREA_FORMAT) as usize;
+                self.settings.tray_area.format =
+                    Format::from_index((id - ID_TRAY_AREA_FORMAT) as usize);
+                self.controls.load_tray(&self.settings, true);
                 self.controls.read_ui(&mut self.settings);
                 self.controls.refresh_formats();
             }
             170..=172 => {
-                self.controls.dyn_video_format_index = (id - ID_DYN_VIDEO_FORMAT) as usize;
-                self.settings.dyn_video.format =
-                    Format::from_index((id - ID_DYN_VIDEO_FORMAT) as usize);
-                self.controls.load_dynamic(&self.settings, false);
+                self.controls.tray_video_format_index = (id - ID_TRAY_VIDEO_FORMAT) as usize;
+                self.settings.tray_video.format =
+                    Format::from_index((id - ID_TRAY_VIDEO_FORMAT) as usize);
+                self.controls.load_tray(&self.settings, false);
                 self.controls.read_ui(&mut self.settings);
                 self.controls.refresh_formats();
             }
@@ -628,31 +741,13 @@ impl App {
             | ID_AUTOSTART..=ID_CARD
             | ID_THREADS
             | ID_SCALE
-            | ID_DYN_AUDIO_SYSTEM
-            | ID_DYN_AUDIO_MIC => {
+            | ID_TRAY_AUDIO_SYSTEM
+            | ID_TRAY_AUDIO_MIC => {
                 self.controls.read_ui(&mut self.settings);
                 self.sync_outline();
             }
             ID_SHOT_SCREEN | ID_TRAY_SHOT => self.screenshot_screen(),
             ID_SHOT_SOURCE => self.capture_source(true),
-            ID_SHOT_REGION => self.open_region(true, true),
-            ID_TRAY_AREA => self.open_region(true, false),
-            ID_CAPTURE_SCREEN => {
-                self.start_capture(self.settings.ui.profile(), None, false, true, false)
-            }
-            ID_CAPTURE_SOURCE => self.capture_source(false),
-            ID_CAPTURE_REGION => self.open_region(false, true),
-            ID_CAPTURE_AUDIO => {
-                self.start_capture(self.settings.ui.profile(), None, true, true, false)
-            }
-            ID_TRAY_VIDEO => {
-                self.start_capture(self.settings.dyn_video.profile(), None, false, false, false)
-            }
-            ID_TRAY_AUDIO => {
-                let mut profile = self.settings.dyn_video.profile();
-                profile.audio = self.settings.dyn_audio.clone();
-                self.start_capture(profile, None, true, false, false);
-            }
             ID_STOP | ID_TRAY_STOP => self.stop_capture(),
             ID_TRAY_OPEN => {
                 if self.window_shown() {
@@ -662,6 +757,7 @@ impl App {
                 }
             }
             ID_TRAY_EXIT => self.request_exit(),
+            ID_TRAY_RESET_SCALE => self.controls.set_interface_scale(&mut self.settings, 100),
             ID_STATUS if notification == 0 => self.open_saved(),
             id if notification == 0 => {
                 if let Some((index, click)) = ui::history_click(id) {
@@ -679,6 +775,23 @@ impl App {
         }
     }
 
+    fn set_mic_gain(&mut self, id: i32, value: u32, persist: bool) {
+        let value = value.min(ui::MIC_GAIN_MAX);
+        let Some(source) = ui::profile_for_microphone(id) else {
+            return;
+        };
+        self.settings.audio_mut(source).gain = value;
+        self.controls.set_microphone_gain(id, value);
+        if self.live_gain_id == Some(id) {
+            if let Some(gain) = &self.live_gain {
+                gain.store(value, Ordering::SeqCst);
+            }
+        }
+        if persist {
+            self.settings.save();
+        }
+    }
+
     fn capture_source(&mut self, screenshot: bool) {
         let Some(chosen) = capture::choose_source(self.hwnd) else {
             return;
@@ -689,7 +802,8 @@ impl App {
                     self.save_rect(rect);
                 } else {
                     self.pending_resilient = true;
-                    self.start_capture(self.settings.ui.profile(), Some(rect), false, true, false);
+                    let (source, take) = start_plan(StartPlace::CaptureSource);
+                    self.start_capture(source, take, Some(rect), true, false);
                 }
             }
             capture::Chosen::Window(rect) => {
@@ -700,7 +814,8 @@ impl App {
                     }
                 } else {
                     self.pending_window = true;
-                    self.start_capture(self.settings.ui.profile(), Some(rect), false, true, false);
+                    let (source, take) = start_plan(StartPlace::CaptureSource);
+                    self.start_capture(source, take, Some(rect), true, false);
                 }
             }
         }
@@ -749,11 +864,29 @@ impl App {
         }
     }
 
-    fn open_region(&mut self, dynamic: bool, hide: bool) {
+    fn begin(&mut self, place: StartPlace) {
+        match place {
+            StartPlace::CaptureSource => self.capture_source(false),
+            StartPlace::ShotRegion => self.open_region(place, true),
+            StartPlace::TrayArea => self.open_region(place, false),
+            StartPlace::CaptureRegion => self.open_region(place, true),
+            StartPlace::CaptureScreen | StartPlace::CaptureAudio => {
+                let (source, take) = start_plan(place);
+                self.start_capture(source, take, None, true, false);
+            }
+            StartPlace::TrayVideo | StartPlace::TrayAudio => {
+                let (source, take) = start_plan(place);
+                self.start_capture(source, take, None, false, false);
+            }
+        }
+    }
+
+    fn open_region(&mut self, place: StartPlace, hide: bool) {
+        let overlay = overlay_for(place);
         if region::active() || self.mode == Mode::Saving || self.mode == Mode::Selecting {
             return;
         }
-        if !dynamic && self.mode != Mode::Idle {
+        if !overlay.annotates() && self.mode != Mode::Idle {
             return;
         }
         let recording = self.mode == Mode::Recording;
@@ -769,12 +902,9 @@ impl App {
             self.mode = Mode::Selecting;
             self.update_state();
         }
-        let profile = if dynamic {
-            self.settings.dyn_area.profile()
-        } else {
-            self.settings.ui.profile()
-        };
-        if let Err(error) = region::open(profile, dynamic, !recording) {
+        let (source, _) = start_plan(place);
+        self.region_source = source;
+        if let Err(error) = region::open(overlay, !recording) {
             self.error(&error);
             if recording {
                 self.sync_outline();
@@ -789,25 +919,21 @@ impl App {
     fn region_done(&mut self) {
         let resume = self.mode == Mode::Recording || self.mode == Mode::Saving;
         match region::take_outcome() {
-            Some(region::Outcome::Record(rect, profile)) => {
+            Some(region::Outcome::Record(rect)) => {
                 if resume {
                     return;
                 }
                 self.mode = Mode::Idle;
-                self.start_capture(profile, Some(rect), false, self.hide_region, true);
+                let (source, take) = start_plan(place_for_source(self.region_source));
+                self.start_capture(source, take, Some(rect), self.hide_region, true);
             }
             Some(region::Outcome::Screen) => {
                 if resume {
                     return;
                 }
                 self.mode = Mode::Idle;
-                self.start_capture(
-                    self.settings.ui.profile(),
-                    None,
-                    false,
-                    self.hide_region,
-                    false,
-                );
+                let (source, take) = start_plan(area_video_place());
+                self.start_capture(source, take, None, self.hide_region, false);
             }
             Some(region::Outcome::Saved(path)) => {
                 if !resume {
@@ -839,9 +965,9 @@ impl App {
 
     fn start_capture(
         &mut self,
-        profile: Profile,
+        source: ProfileRef,
+        take: Take,
         rect: Option<Rect>,
-        audio_only: bool,
         hide: bool,
         region: bool,
     ) {
@@ -849,10 +975,13 @@ impl App {
             return;
         }
         self.controls.read_ui(&mut self.settings);
-        if audio_only && !profile.audio.system && !profile.audio.microphone {
+        let recording = self.settings.applied(source, matches!(take, Take::Picture));
+        if recording.video().is_none() && !recording.audio().system && !recording.audio().microphone
+        {
             self.error("Enable System audio or Microphone before capturing audio");
             return;
         }
+        let (profile, audio_only) = recording.session();
         self.conceal_for_ui(hide);
         self.region_outline = region && !audio_only;
         self.record_rect = if audio_only {
@@ -865,6 +994,8 @@ impl App {
         self.pending_window = false;
         self.pending_resilient = false;
         let recorded_format = profile.format;
+        let mic_gain = Arc::new(AtomicU32::new(profile.audio.gain));
+        let gain_id = ui::microphone_control(source);
         let options = media::RecordOptions {
             profile,
             rect: self.record_rect,
@@ -874,10 +1005,13 @@ impl App {
             resilient,
             show_no_signal: self.settings.show_no_signal,
             show_card: self.settings.show_card,
+            mic_gain: mic_gain.clone(),
         };
         match media::Session::start(options) {
             Ok(session) => {
                 self.session = Some(session);
+                self.live_gain = Some(mic_gain);
+                self.live_gain_id = Some(gain_id);
                 self.started = Some(Instant::now());
                 self.last_second = u64::MAX;
                 self.recording_kind = recording_kind_for(audio_only, region, recorded_format);
@@ -890,6 +1024,8 @@ impl App {
                 };
             }
             Err(error) => {
+                self.live_gain = None;
+                self.live_gain_id = None;
                 self.record_rect = None;
                 self.region_outline = false;
                 self.outline.hide();
@@ -927,6 +1063,7 @@ impl App {
             KillTimer(self.hwnd, TIMER_ID)
         }
         .ok();
+        self.live_gain = None;
         self.record_rect = None;
         self.region_outline = false;
         self.outline.hide();
@@ -1018,6 +1155,7 @@ impl App {
         .ok();
         self.session = None;
         self.finalizer = None;
+        self.live_gain = None;
         self.mode = Mode::Idle;
         self.saved_path = None;
         self.error(error);
@@ -1269,10 +1407,27 @@ unsafe extern "system" fn wnd_proc(
         }
         WM_HSCROLL => {
             let slider = HWND(lparam.0 as *mut std::ffi::c_void);
-            let (fps_id, value_id) = if slider == app().controls.get(ID_DYN_AREA_FORMAT + 4) {
-                (ID_DYN_AREA_FORMAT + 4, ID_DYN_AREA_FPS_VALUE)
-            } else if slider == app().controls.get(ID_DYN_VIDEO_FORMAT + 4) {
-                (ID_DYN_VIDEO_FORMAT + 4, ID_DYN_VIDEO_FPS_VALUE)
+            let gain_id = {
+                let controls = &app().controls;
+                [
+                    ID_MIC_GAIN,
+                    ID_TRAY_AREA_GAIN,
+                    ID_TRAY_VIDEO_GAIN,
+                    ID_TRAY_AUDIO_GAIN,
+                ]
+                .into_iter()
+                .find(|id| controls.get(*id) == slider)
+            };
+            if let Some(id) = gain_id {
+                let value = app().controls.microphone_gain(id);
+                let persist = (wparam.0 & 0xffff) as u32 != TB_THUMBTRACK;
+                app().set_mic_gain(id, value, persist);
+                return LRESULT(0);
+            }
+            let (fps_id, value_id) = if slider == app().controls.get(ID_TRAY_AREA_FORMAT + 4) {
+                (ID_TRAY_AREA_FORMAT + 4, ID_TRAY_AREA_FPS_VALUE)
+            } else if slider == app().controls.get(ID_TRAY_VIDEO_FORMAT + 4) {
+                (ID_TRAY_VIDEO_FORMAT + 4, ID_TRAY_VIDEO_FPS_VALUE)
             } else {
                 (ID_FPS, ID_FPS_VALUE)
             };
@@ -1282,8 +1437,26 @@ unsafe extern "system" fn wnd_proc(
             app().controls.read_ui(&mut app().settings);
             LRESULT(0)
         }
+        WM_MEASUREITEM => {
+            let measure = unsafe {
+                // SAFETY: Windows passes a MEASUREITEMSTRUCT for an owner-drawn menu item of this window.
+                &mut *(lparam.0 as *mut MEASUREITEMSTRUCT)
+            };
+            if measure.CtlType == ODT_MENU {
+                measure_tray_item(measure);
+            }
+            LRESULT(1)
+        }
         WM_DRAWITEM => {
-            ui::draw_button(lparam, &app().controls);
+            let kind = unsafe {
+                // SAFETY: Windows passes a DRAWITEMSTRUCT for a control or menu item of this window.
+                (*((lparam.0) as *const DRAWITEMSTRUCT)).CtlType
+            };
+            if kind == ODT_MENU {
+                draw_tray_item(lparam);
+            } else {
+                ui::draw_button(lparam, &app().controls);
+            }
             LRESULT(1)
         }
         WM_TIMER => {
@@ -1304,7 +1477,7 @@ unsafe extern "system" fn wnd_proc(
                 WM_LBUTTONUP | WM_LBUTTONDBLCLK | 1024 | 1025 => {
                     match geom::tray_click(app().mode.activity(), app().settings.tray_capture) {
                         geom::TrayClick::Stop => app().stop_capture(),
-                        geom::TrayClick::OpenRegion => app().open_region(true, false),
+                        geom::TrayClick::OpenRegion => app().begin(StartPlace::TrayArea),
                         geom::TrayClick::Show => app().show_window(),
                         geom::TrayClick::Ignore => {}
                     }
@@ -1384,11 +1557,114 @@ enum MenuGlyph {
     Video,
     Audio,
     Stop,
+    Scale,
     Exit,
 }
 
+fn measure_tray_item(measure: &mut MEASUREITEMSTRUCT) {
+    let mut text = [0u16; 80];
+    let len = unsafe {
+        // SAFETY: The menu belongs to this window. The buffer outlives the call.
+        GetMenuStringW(
+            app().tray_menu,
+            measure.itemID,
+            Some(&mut text),
+            MF_BYCOMMAND,
+        )
+    }
+    .max(0) as usize;
+    let screen = unsafe {
+        // SAFETY: The screen DC is released before this function returns.
+        GetDC(None)
+    };
+    let font = unsafe {
+        // SAFETY: The stock font is not destroyed.
+        GetStockObject(DEFAULT_GUI_FONT)
+    };
+    let old = unsafe {
+        // SAFETY: The font is selected only for this measurement and then restored.
+        SelectObject(screen, font)
+    };
+    let mut extent = SIZE::default();
+    unsafe {
+        // SAFETY: The text length does not include the trailing NUL, and the buffer holds those units.
+        GetTextExtentPoint32W(screen, &text[..len], &mut extent).ok();
+        SelectObject(screen, old);
+        ReleaseDC(None, screen);
+    }
+    let icon = 32i32;
+    measure.itemWidth = (extent.cx + icon + 28).max(icon + 28) as u32;
+    measure.itemHeight = (icon + 8) as u32;
+}
+
+fn draw_tray_item(lparam: LPARAM) {
+    let item = unsafe {
+        // SAFETY: Windows passes a DRAWITEMSTRUCT for an owner-drawn menu item of this window.
+        &*(lparam.0 as *const DRAWITEMSTRUCT)
+    };
+    let selected = (item.itemState.0 & ODS_SELECTED.0) != 0;
+    let grayed = (item.itemState.0 & (ODS_GRAYED.0 | ODS_DISABLED.0)) != 0;
+    let background = unsafe {
+        // SAFETY: The color index is a system color. The brush is deleted in this function.
+        GetSysColor(if selected {
+            COLOR_HIGHLIGHT
+        } else {
+            COLOR_MENU
+        })
+    };
+    let ink = unsafe {
+        // SAFETY: The color index is a system color.
+        GetSysColor(if grayed {
+            COLOR_GRAYTEXT
+        } else if selected {
+            COLOR_HIGHLIGHTTEXT
+        } else {
+            COLOR_MENUTEXT
+        })
+    };
+    unsafe {
+        // SAFETY: The DC belongs to the menu item being drawn. The brush is deleted before return.
+        let brush = CreateSolidBrush(COLORREF(background));
+        FillRect(item.hDC, &item.rcItem, brush);
+        DeleteObject(brush);
+        let bitmap = HBITMAP(item.itemData as *mut std::ffi::c_void);
+        if !bitmap.is_invalid() {
+            let memory = CreateCompatibleDC(item.hDC);
+            let old = SelectObject(memory, bitmap);
+            let icon = 32i32;
+            let x = item.rcItem.left + 8;
+            let y = item.rcItem.top + (item.rcItem.bottom - item.rcItem.top - icon) / 2;
+            TransparentBlt(item.hDC, x, y, icon, icon, memory, 0, 0, icon, icon, 0).ok();
+            SelectObject(memory, old);
+            DeleteDC(memory);
+        }
+        let mut text = [0u16; 80];
+        let len = GetMenuStringW(
+            app().tray_menu,
+            item.itemID as u32,
+            Some(&mut text),
+            MF_BYCOMMAND,
+        )
+        .max(0) as usize;
+        let mut rect = item.rcItem;
+        rect.left += 8 + 32 + 8;
+        SetBkMode(item.hDC, TRANSPARENT);
+        SetTextColor(item.hDC, COLORREF(ink));
+        DrawTextW(
+            item.hDC,
+            &mut text[..len],
+            &mut rect,
+            DT_LEFT | DT_VCENTER | DT_SINGLELINE,
+        );
+    }
+}
+
 fn menu_bitmap(glyph: MenuGlyph) -> HBITMAP {
-    let size = 16i32;
+    let logical = 16i32;
+    let scale = 2i32;
+    let size = logical * scale;
+    let mut small = vec![0u8; (logical * logical * 4) as usize];
+    paint_menu_glyph(&mut small, logical, glyph);
     let mut info: BITMAPINFO = unsafe {
         // SAFETY: Every field the API reads, including the size, is written before the struct is used.
         std::mem::zeroed()
@@ -1420,6 +1696,21 @@ fn menu_bitmap(glyph: MenuGlyph) -> HBITMAP {
         // SAFETY: The pointer addresses a live buffer, and the length is exactly that buffer's size.
         std::slice::from_raw_parts_mut(bits.cast::<u8>(), (size * size * 4) as usize)
     };
+    for y in 0..logical {
+        for x in 0..logical {
+            let src = ((y * logical + x) * 4) as usize;
+            for dy in 0..scale {
+                for dx in 0..scale {
+                    let dst = (((y * scale + dy) * size + x * scale + dx) * 4) as usize;
+                    pixels[dst..dst + 4].copy_from_slice(&small[src..src + 4]);
+                }
+            }
+        }
+    }
+    bitmap
+}
+
+fn paint_menu_glyph(pixels: &mut [u8], size: i32, glyph: MenuGlyph) {
     let sea = theme::bgra(theme::ACCENT);
     let red = theme::bgra(theme::ALERT);
     let put = |pixels: &mut [u8], x: i32, y: i32, color: [u8; 4]| {
@@ -1492,6 +1783,24 @@ fn menu_bitmap(glyph: MenuGlyph) -> HBITMAP {
                 }
             }
         }
+        MenuGlyph::Scale => {
+            for x in 2..14 {
+                put(pixels, x, 2, sea);
+                put(pixels, x, 13, sea);
+            }
+            for y in 3..13 {
+                put(pixels, 2, y, sea);
+                put(pixels, 13, y, sea);
+            }
+            for x in 6..10 {
+                put(pixels, x, 6, sea);
+                put(pixels, x, 9, sea);
+            }
+            for y in 7..9 {
+                put(pixels, 6, y, sea);
+                put(pixels, 9, y, sea);
+            }
+        }
         MenuGlyph::Exit => {
             for i in 0..8 {
                 put(pixels, 4 + i, 4 + i, red);
@@ -1499,7 +1808,6 @@ fn menu_bitmap(glyph: MenuGlyph) -> HBITMAP {
             }
         }
     }
-    bitmap
 }
 
 fn stamp_circle(pixels: &mut [u8], size: i32, cx: i32, cy: i32, radius: i32, color: [u8; 4]) {
