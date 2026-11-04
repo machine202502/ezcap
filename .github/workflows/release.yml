@@ -64,7 +64,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: vcpkg_installed
-          key: ffmpeg-x64-windows-static-${{ hashFiles('vcpkg.json') }}
+          key: ffmpeg-x64-windows-static-release-${{ hashFiles('vcpkg.json') }}
 
       - name: Build FFmpeg
         if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
@@ -73,6 +73,7 @@ jobs:
           git clone --depth 1 https://github.com/microsoft/vcpkg.git C:\vcpkg
           & C:\vcpkg\bootstrap-vcpkg.bat -disableMetrics
           $env:VCPKG_ROOT = "C:\vcpkg"
+          $env:VCPKG_BUILD_TYPE = "release"
           & C:\vcpkg\vcpkg.exe install --triplet x64-windows-static
 
       - name: Save FFmpeg
@@ -80,7 +81,11 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: vcpkg_installed
-          key: ffmpeg-x64-windows-static-${{ hashFiles('vcpkg.json') }}
+          key: ffmpeg-x64-windows-static-release-${{ hashFiles('vcpkg.json') }}
+
+      - name: Test
+        shell: pwsh
+        run: cargo test --bin ezcap
 
       - name: Install Inno Setup
         run: choco install innosetup --yes --no-progress
