@@ -586,6 +586,20 @@ fn tray_badge_stays_red_while_recording_and_orange_while_saving() {
 }
 
 #[test]
+fn the_red_outline_is_only_for_a_region_recording() {
+    assert!(show_recording_outline(true, true));
+    assert!(!show_recording_outline(true, false));
+    assert!(!show_recording_outline(false, true));
+    assert!(!show_recording_outline(false, false));
+}
+
+#[test]
+fn the_tray_window_item_closes_an_open_window_and_opens_a_hidden_one() {
+    assert_eq!(tray_window_label(true), "Close window");
+    assert_eq!(tray_window_label(false), "Open window");
+}
+
+#[test]
 fn history_stamp_reads_as_a_date_and_time() {
     assert_eq!(
         history_stamp(4, 11, 2026, 22, 56, 7),
@@ -596,7 +610,13 @@ fn history_stamp_reads_as_a_date_and_time() {
 #[test]
 fn screenshots_stay_available_for_video_animation_and_audio() {
     for kind in ["video", "gif", "webp", "audio"] {
-        for id in [ID_SHOT_SCREEN, ID_SHOT_REGION, ID_TRAY_SHOT, ID_TRAY_AREA] {
+        for id in [
+            ID_SHOT_SCREEN,
+            ID_SHOT_SOURCE,
+            ID_SHOT_REGION,
+            ID_TRAY_SHOT,
+            ID_TRAY_AREA,
+        ] {
             assert!(
                 accepts_command(Mode::Recording, id, false),
                 "{kind} must still take a screenshot"
@@ -604,6 +624,7 @@ fn screenshots_stay_available_for_video_animation_and_audio() {
         }
         for id in [
             ID_CAPTURE_SCREEN,
+            ID_CAPTURE_SOURCE,
             ID_CAPTURE_REGION,
             ID_CAPTURE_AUDIO,
             ID_TRAY_VIDEO,
@@ -620,7 +641,10 @@ fn screenshots_stay_available_for_video_animation_and_audio() {
             "{kind} status link"
         );
         assert!(
-            accepts_command(Mode::Recording, ID_HISTORY, false),
+            accepts_command(Mode::Recording, ID_HISTORY, false)
+                && accepts_command(Mode::Recording, ID_HISTORY_COPY, false)
+                && accepts_command(Mode::Recording, ID_HISTORY_REVEAL, false)
+                && accepts_command(Mode::Recording, ID_HISTORY_OPEN, false),
             "{kind} history link"
         );
         assert!(
@@ -654,11 +678,94 @@ fn screenshots_stay_available_for_video_animation_and_audio() {
     }
 }
 
+fn window_visible() -> bool {
+    unsafe {
+        // SAFETY: The HWND is the test window created for this process.
+        IsWindowVisible(app().hwnd).as_bool()
+    }
+}
+
+#[test]
+fn a_ui_recording_returns_after_a_stop_from_the_tray_or_the_window() {
+    register_test_classes();
+    unsafe {
+        // SAFETY: The class was registered for this process. The HWND is destroyed at the end of the test.
+        CreateWindowExW(
+            WINDOW_EX_STYLE(0),
+            CLASS,
+            TITLE,
+            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            640,
+            680,
+            None,
+            None,
+            GetModuleHandleW(None).unwrap(),
+            None,
+        )
+        .unwrap();
+    }
+    app().settings.hide_active = true;
+    let stops = [ID_STOP, ID_TRAY_STOP];
+    for kind in ["audio", "video", "region"] {
+        for stop in stops {
+            app().show_window();
+            app().restore_visible = false;
+            app().mode = Mode::Idle;
+            assert!(window_visible(), "{kind} begins with the window open");
+            if kind == "region" {
+                app().conceal_for_ui(true);
+                assert!(!window_visible(), "{kind} selection hides the window");
+            }
+            app().conceal_for_ui(true);
+            assert!(!window_visible(), "{kind} started from the window hides it");
+            assert!(
+                app().restore_visible,
+                "{kind} remembers to return the window"
+            );
+            test_mark_recording(app());
+            app().command(stop, 0);
+            assert!(
+                app().restore_visible,
+                "{kind} stop {stop} does not cancel the return"
+            );
+            assert!(!window_visible());
+            app().restore_window();
+            assert!(window_visible(), "{kind} opens again after stop {stop}");
+            assert!(!app().restore_visible);
+        }
+    }
+    app().show_window();
+    app().restore_visible = false;
+    app().conceal_for_ui(false);
+    assert!(
+        window_visible(),
+        "a tray recording does not hide the window"
+    );
+    app().hide_window();
+    app().restore_window();
+    assert!(
+        !window_visible(),
+        "a tray recording does not open a window the user had closed"
+    );
+    unsafe {
+        // SAFETY: The HWND is the test window created above and is not used after this call.
+        DestroyWindow(app().hwnd).ok();
+    }
+}
+
 #[test]
 fn hiding_follows_the_window_and_not_the_tray() {
     assert!(hide_while_active(true, true));
     assert!(!hide_while_active(false, true));
     assert!(!hide_while_active(true, false));
+    assert!(
+        remember_restore(true, false),
+        "a region started from the window still returns after a tray stop"
+    );
+    assert!(remember_restore(false, true));
+    assert!(!remember_restore(false, false));
 }
 
 #[test]

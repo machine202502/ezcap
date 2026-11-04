@@ -90,6 +90,13 @@ pub struct RecordOptions {
     pub rect: Option<Rect>,
     pub audio_only: bool,
     pub threads: u32,
+    /// When set, the staged window is captured instead of `rect`.
+    pub window: bool,
+    /// Keep recording if the chosen monitor or window disappears.
+    pub resilient: bool,
+    pub show_no_signal: bool,
+    /// When the signal is gone and recording continues, show the card instead of the last frame.
+    pub show_card: bool,
 }
 
 #[derive(Clone)]
@@ -383,11 +390,17 @@ fn write_image_packets(
 
 fn copy_bgra(data: &Frame, destination: &mut frame::Video) -> Result<(), String> {
     let line = data.width as usize * 4;
-    if data.data.len() != line * data.height as usize {
-        return Err("Invalid BGRA frame size".into());
+    if data.data.len() != line * data.height as usize
+        || destination.width() != data.width
+        || destination.height() != data.height
+    {
+        return Err("Frame size does not match the recording".into());
     }
     let stride = destination.stride(0);
     let plane = destination.data_mut(0);
+    if stride < line || plane.len() < stride * data.height as usize {
+        return Err("Frame size does not match the recording".into());
+    }
     for y in 0..data.height as usize {
         plane[y * stride..y * stride + line].copy_from_slice(&data.data[y * line..(y + 1) * line]);
     }
@@ -411,6 +424,35 @@ pub fn copy_text_to_clipboard(text: &str) -> Result<(), String> {
         SetClipboardData(13, HANDLE(memory.0)).map_err(|e| e.to_string())?;
         CloseClipboard().ok();
         Ok(())
+    }
+}
+
+pub fn open_file(path: &Path) -> Result<(), String> {
+    let verb = "open"
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let file = path
+        .to_string_lossy()
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    // SAFETY: The verb and path are NUL-terminated and live until ShellExecuteW returns. The verb open uses the file's associated program.
+    let code = unsafe {
+        ShellExecuteW(
+            None,
+            PCWSTR(verb.as_ptr()),
+            PCWSTR(file.as_ptr()),
+            None,
+            None,
+            SW_SHOWNORMAL,
+        )
+        .0 as isize
+    };
+    if code > 32 {
+        Ok(())
+    } else {
+        Err("Cannot open the file".into())
     }
 }
 

@@ -21,17 +21,51 @@ pub const ID_SYSTEM_AUDIO: i32 = 124;
 pub const ID_MIC: i32 = 125;
 pub const ID_MIC_DEVICE: i32 = 126;
 pub const ID_SHOT_SCREEN: i32 = 130;
+pub const ID_SHOT_SOURCE: i32 = 147;
 pub const ID_SHOT_REGION: i32 = 131;
 pub const ID_CAPTURE_SCREEN: i32 = 132;
+pub const ID_CAPTURE_SOURCE: i32 = 148;
 pub const ID_CAPTURE_REGION: i32 = 133;
 pub const ID_CAPTURE_AUDIO: i32 = 134;
 pub const ID_STOP: i32 = 135;
 pub const ID_STATUS: i32 = 136;
 pub const ID_HISTORY: i32 = 210;
+pub const ID_HISTORY_COPY: i32 = 230;
+pub const ID_HISTORY_REVEAL: i32 = 250;
+pub const ID_HISTORY_OPEN: i32 = 270;
+pub const HISTORY_ACK_TIMER: usize = 2;
 pub const HISTORY_COUNT: i32 = 12;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum HistoryClick {
+    Label,
+    CopyFile,
+    Reveal,
+    Open,
+}
 
 pub fn history_id(id: i32) -> bool {
     (ID_HISTORY..ID_HISTORY + HISTORY_COUNT).contains(&id)
+}
+
+pub fn history_click(id: i32) -> Option<(usize, HistoryClick)> {
+    let index = |base| {
+        let index = id - base;
+        (0..HISTORY_COUNT)
+            .contains(&index)
+            .then_some(index as usize)
+    };
+    if let Some(index) = index(ID_HISTORY) {
+        Some((index, HistoryClick::Label))
+    } else if let Some(index) = index(ID_HISTORY_COPY) {
+        Some((index, HistoryClick::CopyFile))
+    } else if let Some(index) = index(ID_HISTORY_REVEAL) {
+        Some((index, HistoryClick::Reveal))
+    } else if let Some(index) = index(ID_HISTORY_OPEN) {
+        Some((index, HistoryClick::Open))
+    } else {
+        None
+    }
 }
 pub const ID_SHOT_LABEL: i32 = 137;
 pub const ID_CAPTURE_LABEL: i32 = 138;
@@ -45,6 +79,8 @@ pub const ID_CLIPBOARD: i32 = 154;
 pub const ID_TRAY_CAPTURE: i32 = 155;
 pub const ID_HIGHLIGHT: i32 = 156;
 pub const ID_NOTIFY: i32 = 157;
+pub const ID_NO_SIGNAL: i32 = 158;
+pub const ID_CARD: i32 = 159;
 pub const ID_DYN_AREA_FORMAT: i32 = 160;
 pub const ID_DYN_AREA_FPS_VALUE: i32 = 165;
 pub const ID_DYN_AREA_DEVICE: i32 = 168;
@@ -83,7 +119,7 @@ const TABS: [Place; 4] = [
     p(ID_REFRESH, 468, 10, 100, 32),
     p(ID_ABOUT, 580, 10, 32, 32),
 ];
-const CAPTURE: [Place; 21] = [
+const CAPTURE: [Place; 23] = [
     p(ID_FORMAT, 28, 58, 184, 26),
     p(ID_FORMAT + 1, 222, 58, 184, 26),
     p(ID_FORMAT + 2, 416, 58, 184, 26),
@@ -95,11 +131,13 @@ const CAPTURE: [Place; 21] = [
     p(ID_MIC, 28, 208, 160, 26),
     p(ID_MIC_DEVICE, 196, 207, 404, 300),
     p(ID_SHOT_LABEL, 28, 252, 572, 22),
-    p(ID_SHOT_SCREEN, 28, 278, 280, 36),
-    p(ID_SHOT_REGION, 320, 278, 280, 36),
+    p(ID_SHOT_SCREEN, 28, 278, 184, 36),
+    p(ID_SHOT_SOURCE, 220, 278, 184, 36),
+    p(ID_SHOT_REGION, 412, 278, 188, 36),
     p(ID_CAPTURE_LABEL, 28, 326, 572, 22),
-    p(ID_CAPTURE_SCREEN, 28, 352, 280, 36),
-    p(ID_CAPTURE_REGION, 320, 352, 280, 36),
+    p(ID_CAPTURE_SCREEN, 28, 352, 184, 36),
+    p(ID_CAPTURE_SOURCE, 220, 352, 184, 36),
+    p(ID_CAPTURE_REGION, 412, 352, 188, 36),
     p(ID_AUDIO_LABEL, 28, 400, 572, 22),
     p(ID_CAPTURE_AUDIO, 28, 426, 572, 36),
     p(ID_STOP_LABEL, 28, 474, 572, 22),
@@ -107,45 +145,47 @@ const CAPTURE: [Place; 21] = [
     p(ID_STATUS, 28, 552, 572, 28),
 ];
 
-const SETTINGS: [Place; 38] = [
+const SETTINGS: [Place; 40] = [
     p(ID_AUTOSTART, 28, 56, 572, 26),
     p(ID_START_MINIMIZED, 28, 87, 572, 26),
     p(ID_HIDE_ACTIVE, 28, 118, 572, 26),
     p(ID_CLOSE_TRAY, 28, 149, 572, 26),
     p(ID_CLIPBOARD, 28, 180, 572, 26),
     p(ID_TRAY_CAPTURE, 28, 211, 572, 26),
-    p(ID_HIGHLIGHT, 28, 242, 572, 26),
-    p(ID_NOTIFY, 28, 273, 572, 26),
-    p(ID_AREA_HEADING, 28, 322, 400, 24),
-    p(ID_DYN_AREA_FORMAT, 28, 348, 184, 26),
-    p(ID_DYN_AREA_FORMAT + 1, 222, 348, 184, 26),
-    p(ID_DYN_AREA_FORMAT + 2, 416, 348, 184, 26),
-    p(ID_DYN_AREA_PRESET, 28, 386, 280, 300),
-    p(ID_DYN_AREA_FORMAT + 3, 320, 386, 280, 300),
-    p(ID_DYN_AREA_FORMAT + 4, 28, 424, 480, 28),
-    p(ID_DYN_AREA_FPS_VALUE, 520, 428, 80, 24),
-    p(ID_DYN_AREA_FORMAT + 6, 28, 464, 240, 26),
-    p(ID_DYN_AREA_FORMAT + 7, 28, 496, 160, 26),
-    p(ID_DYN_AREA_DEVICE, 196, 495, 404, 300),
-    p(ID_VIDEO_HEADING, 28, 552, 400, 24),
-    p(ID_DYN_VIDEO_FORMAT, 28, 578, 184, 26),
-    p(ID_DYN_VIDEO_FORMAT + 1, 222, 578, 184, 26),
-    p(ID_DYN_VIDEO_FORMAT + 2, 416, 578, 184, 26),
-    p(ID_DYN_VIDEO_PRESET, 28, 616, 280, 300),
-    p(ID_DYN_VIDEO_FORMAT + 3, 320, 616, 280, 300),
-    p(ID_DYN_VIDEO_FORMAT + 4, 28, 654, 480, 28),
-    p(ID_DYN_VIDEO_FPS_VALUE, 520, 658, 80, 24),
-    p(ID_DYN_VIDEO_FORMAT + 6, 28, 694, 240, 26),
-    p(ID_DYN_VIDEO_FORMAT + 7, 28, 726, 160, 26),
-    p(ID_DYN_VIDEO_DEVICE, 196, 725, 404, 300),
-    p(ID_DYN_AUDIO_HEADING, 28, 782, 400, 24),
-    p(ID_DYN_AUDIO_SYSTEM, 28, 808, 240, 26),
-    p(ID_DYN_AUDIO_MIC, 28, 840, 160, 26),
-    p(ID_DYN_AUDIO_DEVICE, 196, 839, 404, 300),
-    p(ID_THREADS_HEADING, 28, 900, 250, 24),
-    p(ID_THREADS, 28, 926, 180, 300),
-    p(ID_SCALE_HEADING, 320, 900, 250, 24),
-    p(ID_SCALE, 320, 926, 180, 300),
+    p(ID_HIGHLIGHT, 28, 255, 572, 26),
+    p(ID_NOTIFY, 28, 286, 572, 26),
+    p(ID_NO_SIGNAL, 28, 317, 572, 26),
+    p(ID_CARD, 28, 348, 572, 26),
+    p(ID_AREA_HEADING, 28, 434, 400, 24),
+    p(ID_DYN_AREA_FORMAT, 28, 460, 184, 26),
+    p(ID_DYN_AREA_FORMAT + 1, 222, 460, 184, 26),
+    p(ID_DYN_AREA_FORMAT + 2, 416, 460, 184, 26),
+    p(ID_DYN_AREA_PRESET, 28, 498, 280, 300),
+    p(ID_DYN_AREA_FORMAT + 3, 320, 498, 280, 300),
+    p(ID_DYN_AREA_FORMAT + 4, 28, 536, 480, 28),
+    p(ID_DYN_AREA_FPS_VALUE, 520, 540, 80, 24),
+    p(ID_DYN_AREA_FORMAT + 6, 28, 576, 240, 26),
+    p(ID_DYN_AREA_FORMAT + 7, 28, 608, 160, 26),
+    p(ID_DYN_AREA_DEVICE, 196, 607, 404, 300),
+    p(ID_VIDEO_HEADING, 28, 664, 400, 24),
+    p(ID_DYN_VIDEO_FORMAT, 28, 690, 184, 26),
+    p(ID_DYN_VIDEO_FORMAT + 1, 222, 690, 184, 26),
+    p(ID_DYN_VIDEO_FORMAT + 2, 416, 690, 184, 26),
+    p(ID_DYN_VIDEO_PRESET, 28, 728, 280, 300),
+    p(ID_DYN_VIDEO_FORMAT + 3, 320, 728, 280, 300),
+    p(ID_DYN_VIDEO_FORMAT + 4, 28, 766, 480, 28),
+    p(ID_DYN_VIDEO_FPS_VALUE, 520, 770, 80, 24),
+    p(ID_DYN_VIDEO_FORMAT + 6, 28, 806, 240, 26),
+    p(ID_DYN_VIDEO_FORMAT + 7, 28, 838, 160, 26),
+    p(ID_DYN_VIDEO_DEVICE, 196, 837, 404, 300),
+    p(ID_DYN_AUDIO_HEADING, 28, 894, 400, 24),
+    p(ID_DYN_AUDIO_SYSTEM, 28, 920, 240, 26),
+    p(ID_DYN_AUDIO_MIC, 28, 952, 160, 26),
+    p(ID_DYN_AUDIO_DEVICE, 196, 951, 404, 300),
+    p(ID_THREADS_HEADING, 28, 1012, 250, 24),
+    p(ID_THREADS, 28, 1038, 180, 300),
+    p(ID_SCALE_HEADING, 320, 1012, 250, 24),
+    p(ID_SCALE, 320, 1038, 180, 300),
 ];
 
 pub struct Controls {
@@ -162,6 +202,7 @@ pub struct Controls {
     hwnd: HWND,
     scale_percent: u32,
     scale_setting: u32,
+    history_ack: Option<i32>,
 }
 
 impl Controls {
@@ -180,6 +221,26 @@ impl Controls {
             hwnd,
             scale_percent: 100,
             scale_setting: u32::MAX,
+            history_ack: None,
+        }
+    }
+
+    pub fn acknowledge_copy(&mut self, id: i32) {
+        self.history_ack = Some(id);
+        unsafe {
+            // SAFETY: The HWND is the copy button this window created. The timer id is cleared from WM_TIMER.
+            InvalidateRect(self.get(id), None, true);
+            SetTimer(self.hwnd, HISTORY_ACK_TIMER, 800, None);
+        }
+    }
+
+    pub fn clear_history_ack(&mut self) {
+        let Some(id) = self.history_ack.take() else {
+            return;
+        };
+        unsafe {
+            // SAFETY: The HWND is the copy button this window created.
+            InvalidateRect(self.get(id), None, true);
         }
     }
 
@@ -342,8 +403,10 @@ impl Controls {
         }
         for (id, text) in [
             (ID_SHOT_SCREEN, "Screen"),
+            (ID_SHOT_SOURCE, "Sources"),
             (ID_SHOT_REGION, "Area"),
             (ID_CAPTURE_SCREEN, "Screen"),
+            (ID_CAPTURE_SOURCE, "Sources"),
             (ID_CAPTURE_REGION, "Area"),
             (ID_CAPTURE_AUDIO, "Audio"),
             (ID_STOP, "Stop capture"),
@@ -374,6 +437,30 @@ impl Controls {
                 ID_HISTORY + index,
                 2,
             );
+            self.create_control(
+                w!("BUTTON"),
+                "",
+                WINDOW_STYLE(BS_OWNERDRAW as u32),
+                WINDOW_EX_STYLE(0),
+                ID_HISTORY_COPY + index,
+                2,
+            );
+            self.create_control(
+                w!("BUTTON"),
+                "",
+                WINDOW_STYLE(BS_OWNERDRAW as u32),
+                WINDOW_EX_STYLE(0),
+                ID_HISTORY_REVEAL + index,
+                2,
+            );
+            self.create_control(
+                w!("BUTTON"),
+                "",
+                WINDOW_STYLE(BS_OWNERDRAW as u32),
+                WINDOW_EX_STYLE(0),
+                ID_HISTORY_OPEN + index,
+                2,
+            );
         }
         for (id, text) in [
             (ID_AUTOSTART, "Start with Windows"),
@@ -387,6 +474,11 @@ impl Controls {
             (ID_TRAY_CAPTURE, "Select an area on tray icon click"),
             (ID_HIGHLIGHT, "Highlight the recording area"),
             (ID_NOTIFY, "Play a sound when recording finishes"),
+            (
+                ID_NO_SIGNAL,
+                "Keep recording with a no-signal card if the source disappears",
+            ),
+            (ID_CARD, "Show a no-signal card instead of the last frame"),
         ] {
             self.create_control(
                 w!("BUTTON"),
@@ -620,7 +712,11 @@ impl Controls {
                 self.place(place);
             }
             for index in 0..HISTORY_COUNT {
-                self.place(&p(ID_HISTORY + index, 28, 588 + index * 28, 572, 24));
+                let y = 588 + index * 28;
+                self.place(&p(ID_HISTORY + index, 28, y, 472, 24));
+                self.place(&p(ID_HISTORY_OPEN + index, 508, y, 24, 24));
+                self.place(&p(ID_HISTORY_COPY + index, 536, y, 24, 24));
+                self.place(&p(ID_HISTORY_REVEAL + index, 564, y, 24, 24));
             }
         } else {
             for place in &SETTINGS {
@@ -657,7 +753,7 @@ impl Controls {
     fn resize_window(&self) {
         let percent = self.scale_percent;
         let width = 628 * percent as i32 / 100;
-        let height = 1002 * percent as i32 / 100;
+        let height = 1117 * percent as i32 / 100;
         let mut rect = RECT {
             left: 0,
             top: 0,
@@ -705,6 +801,8 @@ impl Controls {
             (ID_TRAY_CAPTURE, settings.tray_capture),
             (ID_HIGHLIGHT, settings.highlight_region),
             (ID_NOTIFY, settings.completion_sound),
+            (ID_NO_SIGNAL, settings.show_no_signal),
+            (ID_CARD, settings.show_card),
         ] {
             self.check(id, value);
         }
@@ -883,17 +981,21 @@ impl Controls {
                 // SAFETY: The HWND is a window or child control this program created and still owns.
                 GetWindowTextW(hwnd, &mut probe)
             } > 0;
-            unsafe {
-                // SAFETY: The HWND is a window or child control this program created and still owns.
-
-                ShowWindow(
-                    hwnd,
-                    if self.page == 0 && filled {
-                        SW_SHOW
-                    } else {
-                        SW_HIDE
-                    },
-                );
+            let show = if self.page == 0 && filled {
+                SW_SHOW
+            } else {
+                SW_HIDE
+            };
+            for id in [
+                ID_HISTORY + index,
+                ID_HISTORY_OPEN + index,
+                ID_HISTORY_COPY + index,
+                ID_HISTORY_REVEAL + index,
+            ] {
+                unsafe {
+                    // SAFETY: The HWND is a window or child control this program created and still owns.
+                    ShowWindow(self.get(id), show);
+                }
             }
         }
     }
@@ -958,6 +1060,8 @@ impl Controls {
         settings.autostart = self.checked(ID_AUTOSTART);
         settings.start_minimized = self.checked(ID_START_MINIMIZED);
         settings.hide_active = self.checked(ID_HIDE_ACTIVE);
+        settings.show_no_signal = self.checked(ID_NO_SIGNAL);
+        settings.show_card = self.checked(ID_CARD);
         settings.close_tray = self.checked(ID_CLOSE_TRAY);
         settings.clipboard = self.checked(ID_CLIPBOARD);
         settings.tray_capture = self.checked(ID_TRAY_CAPTURE);
@@ -1111,7 +1215,9 @@ impl Controls {
             if *h == self.get(ID_STOP) || *h == self.get(ID_STATUS) {
                 continue;
             }
-            let screenshot = *h == self.get(ID_SHOT_SCREEN) || *h == self.get(ID_SHOT_REGION);
+            let screenshot = *h == self.get(ID_SHOT_SCREEN)
+                || *h == self.get(ID_SHOT_SOURCE)
+                || *h == self.get(ID_SHOT_REGION);
             unsafe {
                 // SAFETY: The HWND is a child control created with the main window.
                 EnableWindow(*h, idle || (recording && screenshot))
@@ -1228,6 +1334,12 @@ pub fn draw_button(lparam: LPARAM, controls: &Controls) {
 
         let item = &mut *(lparam.0 as *mut DRAWITEMSTRUCT);
         let id = item.CtlID as i32;
+        if let Some((_, click)) = history_click(id) {
+            let pressed = (item.itemState.0 & ODS_SELECTED.0) != 0;
+            let acknowledged = controls.history_ack == Some(id);
+            draw_history_icon(item, click, controls.scale_percent, pressed, acknowledged);
+            return;
+        }
         let radio = if (ID_FORMAT..=ID_FORMAT + 2).contains(&id) {
             Some((ID_FORMAT, controls.format_index))
         } else if (ID_DYN_AREA_FORMAT..=ID_DYN_AREA_FORMAT + 2).contains(&id) {
@@ -1336,5 +1448,133 @@ pub fn draw_button(lparam: LPARAM, controls: &Controls) {
             DT_CENTER | DT_VCENTER | DT_SINGLELINE,
         );
         SelectObject(item.hDC, old);
+    }
+}
+
+fn draw_history_icon(
+    item: &DRAWITEMSTRUCT,
+    click: HistoryClick,
+    percent: u32,
+    pressed: bool,
+    acknowledged: bool,
+) {
+    let (shift, check) = copy_feedback(pressed, acknowledged && click == HistoryClick::CopyFile);
+    let scale = |value: i32| (value * percent as i32 / 100).max(1);
+    unsafe {
+        // SAFETY: The DC belongs to the button being drawn, and the pens are deleted before return.
+        let parent = CreateSolidBrush(if check { ACCENT } else { BACKGROUND });
+        FillRect(item.hDC, &item.rcItem, parent);
+        DeleteObject(parent);
+        let color = if check {
+            crate::theme::ON_ACCENT
+        } else {
+            ACCENT
+        };
+        let pen = CreatePen(PS_SOLID, scale(2).max(1), color);
+        let old = SelectObject(item.hDC, pen);
+        SelectObject(item.hDC, GetStockObject(NULL_BRUSH));
+        let nudge = scale(shift);
+        let left = item.rcItem.left;
+        let top = item.rcItem.top;
+        let right = item.rcItem.right;
+        let bottom = item.rcItem.bottom;
+        let x = left + scale(5) + nudge;
+        let y = top + scale(6) + nudge;
+        let w = (right - left - scale(10)).max(8);
+        let h = (bottom - top - scale(12)).max(8);
+        match click {
+            HistoryClick::CopyFile if check => {
+                MoveToEx(item.hDC, x, y + h / 2, None);
+                LineTo(item.hDC, x + w / 3, y + h - scale(1));
+                LineTo(item.hDC, x + w, y);
+            }
+            HistoryClick::CopyFile => {
+                Rectangle(item.hDC, x + scale(3), y, x + w, y + h - scale(3));
+                Rectangle(item.hDC, x, y + scale(3), x + w - scale(3), y + h);
+            }
+            HistoryClick::Open => {
+                Rectangle(item.hDC, x, y + scale(4), x + w - scale(5), y + h);
+                MoveToEx(item.hDC, x + w / 2, y + h / 2, None);
+                LineTo(item.hDC, x + w, y);
+                MoveToEx(item.hDC, x + w - scale(4), y, None);
+                LineTo(item.hDC, x + w, y);
+                LineTo(item.hDC, x + w, y + scale(4));
+            }
+            HistoryClick::Reveal => {
+                MoveToEx(item.hDC, x, y + scale(3), None);
+                LineTo(item.hDC, x + scale(5), y + scale(3));
+                LineTo(item.hDC, x + scale(7), y);
+                LineTo(item.hDC, x + w, y);
+                LineTo(item.hDC, x + w, y + h);
+                LineTo(item.hDC, x, y + h);
+                LineTo(item.hDC, x, y + scale(3));
+            }
+            HistoryClick::Label => {}
+        }
+        SelectObject(item.hDC, old);
+        DeleteObject(pen);
+    }
+}
+
+fn copy_feedback(pressed: bool, acknowledged: bool) -> (i32, bool) {
+    if acknowledged {
+        (0, true)
+    } else if pressed {
+        (2, false)
+    } else {
+        (0, false)
+    }
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::{
+        ID_AREA_HEADING, ID_AUTOSTART, ID_CARD, ID_CLIPBOARD, ID_CLOSE_TRAY, ID_HIDE_ACTIVE,
+        ID_HIGHLIGHT, ID_NOTIFY, ID_NO_SIGNAL, ID_START_MINIMIZED, ID_TRAY_CAPTURE, SETTINGS,
+    };
+
+    fn y(id: i32) -> i32 {
+        SETTINGS
+            .iter()
+            .find(|place| place.id == id)
+            .map(|place| place.y)
+            .unwrap()
+    }
+
+    #[test]
+    fn default_off_checkboxes_sit_above_the_ones_that_start_on() {
+        let off = [
+            ID_AUTOSTART,
+            ID_START_MINIMIZED,
+            ID_HIDE_ACTIVE,
+            ID_CLOSE_TRAY,
+            ID_CLIPBOARD,
+            ID_TRAY_CAPTURE,
+        ];
+        let on = [ID_HIGHLIGHT, ID_NOTIFY, ID_NO_SIGNAL, ID_CARD];
+        let mut last = 0;
+        for id in off {
+            assert!(y(id) > last);
+            last = y(id);
+        }
+        assert!(
+            y(on[0]) - (last + 26) > 10,
+            "the enabled-by-default checkboxes should sit in their own group"
+        );
+        for id in on {
+            assert!(y(id) > last);
+            last = y(id);
+        }
+        assert!(
+            y(ID_AREA_HEADING) >= last + 26 + 28,
+            "Tray area recording must sit clear of the last checkbox"
+        );
+    }
+
+    #[test]
+    fn copying_to_the_clipboard_answers_with_a_check() {
+        assert_eq!(super::copy_feedback(false, false), (0, false));
+        assert_eq!(super::copy_feedback(true, false), (2, false));
+        assert_eq!(super::copy_feedback(true, true), (0, true));
     }
 }

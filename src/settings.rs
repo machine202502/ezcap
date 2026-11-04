@@ -63,6 +63,8 @@ pub struct Settings {
     pub tray_capture: bool,
     pub highlight_region: bool,
     pub completion_sound: bool,
+    pub show_no_signal: bool,
+    pub show_card: bool,
     pub threads: u32,
     pub scale: u32,
 }
@@ -82,6 +84,8 @@ impl Default for Settings {
             tray_capture: false,
             highlight_region: true,
             completion_sound: true,
+            show_no_signal: true,
+            show_card: true,
             threads: 0,
             scale: 0,
         }
@@ -243,6 +247,8 @@ impl Settings {
         settings.tray_capture = registry.dword("tray_capture", 0) != 0;
         settings.highlight_region = registry.dword("highlight_region", 1) != 0;
         settings.completion_sound = registry.dword("completion_sound", 1) != 0;
+        settings.show_no_signal = registry.dword("show_no_signal", 1) != 0;
+        settings.show_card = registry.dword("show_card", 1) != 0;
         settings.threads = registry.dword("threads", 0);
         settings.scale = registry.dword("scale", 0);
         for audio in [
@@ -277,6 +283,8 @@ impl Settings {
         registry.set_dword("tray_capture", self.tray_capture as u32);
         registry.set_dword("highlight_region", self.highlight_region as u32);
         registry.set_dword("completion_sound", self.completion_sound as u32);
+        registry.set_dword("show_no_signal", self.show_no_signal as u32);
+        registry.set_dword("show_card", self.show_card as u32);
         registry.set_dword("threads", self.threads);
         registry.set_dword("scale", self.scale);
         update_autostart(self.autostart, self.start_minimized);
@@ -390,4 +398,70 @@ fn update_autostart(enabled: bool, minimized: bool) {
         RegCloseKey(key)
     }
     .ok();
+}
+
+pub fn load_history(limit: usize) -> Vec<(std::path::PathBuf, String)> {
+    let Some(registry) = Registry::open() else {
+        return Vec::new();
+    };
+    decode_history(&registry.string("history", ""), limit)
+}
+
+pub fn save_history(items: &[(std::path::PathBuf, String)]) {
+    let Some(registry) = Registry::open() else {
+        return;
+    };
+    registry.set_string("history", &encode_history(items));
+}
+
+pub fn encode_history(items: &[(std::path::PathBuf, String)]) -> String {
+    items
+        .iter()
+        .map(|(path, stamp)| format!("{stamp}\u{1f}{}", path.display()))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+pub fn decode_history(text: &str, limit: usize) -> Vec<(std::path::PathBuf, String)> {
+    text.lines()
+        .filter_map(|line| {
+            let (stamp, path) = line.split_once('\u{1f}')?;
+            if stamp.is_empty() || path.is_empty() {
+                return None;
+            }
+            Some((std::path::PathBuf::from(path), stamp.to_string()))
+        })
+        .take(limit)
+        .collect()
+}
+
+#[cfg(test)]
+mod history_store {
+    use super::{decode_history, encode_history};
+    use std::path::PathBuf;
+
+    #[test]
+    fn the_visible_history_survives_a_restart() {
+        let items = vec![
+            (
+                PathBuf::from(r"C:\Pictures\ezcap\Video_1.mkv"),
+                "4 Nov 2026, 22:56:07".into(),
+            ),
+            (
+                PathBuf::from(r"C:\Pictures\ezcap\Shot 2.png"),
+                "4 Nov 2026, 22:01:00".into(),
+            ),
+        ];
+        let restored = decode_history(&encode_history(&items), 12);
+        assert_eq!(restored, items);
+        let extra: Vec<_> = (0..20)
+            .map(|index| {
+                (
+                    PathBuf::from(format!("file-{index}.png")),
+                    format!("stamp-{index}"),
+                )
+            })
+            .collect();
+        assert_eq!(decode_history(&encode_history(&extra), 12).len(), 12);
+    }
 }

@@ -17,7 +17,7 @@ pub(crate) use settings::{test_mode, wide, CaptureSettings, Settings};
 use std::path::PathBuf;
 use std::time::Instant;
 use ui::*;
-use windows::core::{w, PCWSTR};
+use windows::core::{w, PCWSTR, PWSTR};
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -211,7 +211,7 @@ pub(crate) fn history_stamp(
 fn accepts_command(mode: Mode, id: i32, region_open: bool) -> bool {
     let screenshot = matches!(
         id,
-        ID_SHOT_SCREEN | ID_SHOT_REGION | ID_TRAY_SHOT | ID_TRAY_AREA
+        ID_SHOT_SCREEN | ID_SHOT_SOURCE | ID_SHOT_REGION | ID_TRAY_SHOT | ID_TRAY_AREA
     );
     if screenshot && (region_open || mode == Mode::Saving || mode == Mode::Selecting) {
         return false;
@@ -222,11 +222,29 @@ fn accepts_command(mode: Mode, id: i32, region_open: bool) -> bool {
             id,
             ID_STOP | ID_TRAY_STOP | ID_TRAY_EXIT | ID_TRAY_OPEN | ID_STATUS | ID_ABOUT
         )
-        || ui::history_id(id)
+        || ui::history_click(id).is_some()
 }
 
 fn hide_while_active(from_window: bool, setting_on: bool) -> bool {
     from_window && setting_on
+}
+
+/// The window comes back when a recording that hid it ends, including a stop from the tray.
+/// A promise made while selecting the area is kept even though the window is already hidden.
+fn remember_restore(promised: bool, visible_now: bool) -> bool {
+    promised || visible_now
+}
+
+fn show_recording_outline(highlight: bool, region: bool) -> bool {
+    highlight && region
+}
+
+fn tray_window_label(shown: bool) -> &'static str {
+    if shown {
+        "Close window"
+    } else {
+        "Open window"
+    }
 }
 
 fn tray_item_enabled(mode: Mode, id: i32) -> bool {
@@ -329,10 +347,13 @@ struct App {
     background: HBRUSH,
     restore_visible: bool,
     hide_region: bool,
+    pending_window: bool,
+    pending_resilient: bool,
     quit_after_save: bool,
     last_second: u64,
     outline: outline::RegionOutline,
     record_rect: Option<Rect>,
+    region_outline: bool,
     saved_path: Option<PathBuf>,
     history: Vec<(PathBuf, String)>,
     menu_icons: Vec<HBITMAP>,
@@ -361,10 +382,13 @@ impl App {
             },
             restore_visible: false,
             hide_region: true,
+            pending_window: false,
+            pending_resilient: false,
             quit_after_save: false,
             last_second: u64::MAX,
             outline: outline::RegionOutline::new(),
             record_rect: None,
+            region_outline: false,
             saved_path: None,
             history: Vec::new(),
             menu_icons: Vec::new(),
@@ -373,6 +397,8 @@ impl App {
 
     fn build(&mut self) {
         self.controls.build(&mut self.settings);
+        self.history = settings::load_history(ui::HISTORY_COUNT as usize);
+        self.refresh_history();
         self.build_tray();
         self.update_state();
     }
@@ -558,7 +584,7 @@ impl App {
             | 173..=178
             | ID_SYSTEM_AUDIO
             | ID_MIC
-            | ID_AUTOSTART..=ID_NOTIFY
+            | ID_AUTOSTART..=ID_CARD
             | ID_THREADS
             | ID_SCALE
             | ID_DYN_AUDIO_SYSTEM
@@ -567,30 +593,98 @@ impl App {
                 self.sync_outline();
             }
             ID_SHOT_SCREEN | ID_TRAY_SHOT => self.screenshot_screen(),
+            ID_SHOT_SOURCE => self.capture_source(true),
             ID_SHOT_REGION => self.open_region(true, true),
             ID_TRAY_AREA => self.open_region(true, false),
-            ID_CAPTURE_SCREEN => self.start_capture(self.settings.ui.profile(), None, false, true),
+            ID_CAPTURE_SCREEN => {
+                self.start_capture(self.settings.ui.profile(), None, false, true, false)
+            }
+            ID_CAPTURE_SOURCE => self.capture_source(false),
             ID_CAPTURE_REGION => self.open_region(false, true),
-            ID_CAPTURE_AUDIO => self.start_capture(self.settings.ui.profile(), None, true, true),
+            ID_CAPTURE_AUDIO => {
+                self.start_capture(self.settings.ui.profile(), None, true, true, false)
+            }
             ID_TRAY_VIDEO => {
-                self.start_capture(self.settings.dyn_video.profile(), None, false, false)
+                self.start_capture(self.settings.dyn_video.profile(), None, false, false, false)
             }
             ID_TRAY_AUDIO => {
                 let mut profile = self.settings.dyn_video.profile();
                 profile.audio = self.settings.dyn_audio.clone();
-                self.start_capture(profile, None, true, false);
+                self.start_capture(profile, None, true, false, false);
             }
             ID_STOP | ID_TRAY_STOP => self.stop_capture(),
-            ID_TRAY_OPEN => self.show_window(),
+            ID_TRAY_OPEN => {
+                if self.window_shown() {
+                    self.hide_window();
+                } else {
+                    self.show_window();
+                }
+            }
             ID_TRAY_EXIT => self.request_exit(),
             ID_STATUS if notification == 0 => self.open_saved(),
-            id if ui::history_id(id) && notification == 0 => {
-                let index = (id - ID_HISTORY) as usize;
-                if let Some(path) = self.history.get(index).map(|(path, _)| path.clone()) {
-                    self.open_path(&path);
+            id if notification == 0 => {
+                if let Some((index, click)) = ui::history_click(id) {
+                    if let Some(path) = self.history.get(index).map(|(path, _)| path.clone()) {
+                        match click {
+                            ui::HistoryClick::Label => self.copy_path(&path),
+                            ui::HistoryClick::CopyFile => self.copy_file(id, &path),
+                            ui::HistoryClick::Reveal => self.reveal(&path),
+                            ui::HistoryClick::Open => self.open_file(&path),
+                        }
+                    }
                 }
             }
             _ => {}
+        }
+    }
+
+    fn capture_source(&mut self, screenshot: bool) {
+        let Some(chosen) = capture::choose_source(self.hwnd) else {
+            return;
+        };
+        match chosen {
+            capture::Chosen::Monitor(rect) => {
+                if screenshot {
+                    self.save_rect(rect);
+                } else {
+                    self.pending_resilient = true;
+                    self.start_capture(self.settings.ui.profile(), Some(rect), false, true, false);
+                }
+            }
+            capture::Chosen::Window(rect) => {
+                if screenshot {
+                    match capture::grab_staged_window() {
+                        Ok(frame) => self.save_frame(frame),
+                        Err(error) => self.error(&error),
+                    }
+                } else {
+                    self.pending_window = true;
+                    self.start_capture(self.settings.ui.profile(), Some(rect), false, true, false);
+                }
+            }
+        }
+    }
+
+    fn save_rect(&mut self, rect: Rect) {
+        let saved = if self.mode == Mode::Recording {
+            media::save_display_screenshot(rect, None)
+        } else {
+            media::save_screenshot(rect, None)
+        };
+        match saved {
+            Ok(path) => self.completed(path),
+            Err(error) => self.error(&error),
+        }
+    }
+
+    fn save_frame(&mut self, frame: media::Frame) {
+        let saved = media::output_path("Image", "png").and_then(|path| {
+            media::save_frame(&frame, &path)?;
+            Ok(path)
+        });
+        match saved {
+            Ok(path) => self.completed(path),
+            Err(error) => self.error(&error),
         }
     }
 
@@ -624,16 +718,8 @@ impl App {
         let recording = self.mode == Mode::Recording;
         self.hide_region = hide;
         self.controls.read_ui(&mut self.settings);
-        if hide_while_active(hide, self.settings.hide_active) && !recording {
-            self.restore_visible = unsafe {
-                // SAFETY: The HWND is a window this program created.
-                IsWindowVisible(self.hwnd)
-            }
-            .as_bool();
-            unsafe {
-                // SAFETY: The HWND is a window or child control this program created and still owns.
-                ShowWindow(self.hwnd, SW_HIDE)
-            };
+        if !recording {
+            self.conceal_for_ui(hide);
         }
         if recording {
             self.outline.hide();
@@ -667,7 +753,7 @@ impl App {
                     return;
                 }
                 self.mode = Mode::Idle;
-                self.start_capture(profile, Some(rect), false, self.hide_region);
+                self.start_capture(profile, Some(rect), false, self.hide_region, true);
             }
             Some(region::Outcome::Saved(path)) => {
                 if !resume {
@@ -703,6 +789,7 @@ impl App {
         rect: Option<Rect>,
         audio_only: bool,
         hide: bool,
+        region: bool,
     ) {
         if self.mode != Mode::Idle || self.session.is_some() {
             return;
@@ -712,27 +799,26 @@ impl App {
             self.error("Enable System audio or Microphone before capturing audio");
             return;
         }
-        if hide_while_active(hide, self.settings.hide_active) {
-            self.restore_visible = unsafe {
-                // SAFETY: The HWND is a window this program created.
-                IsWindowVisible(self.hwnd)
-            }
-            .as_bool();
-            unsafe {
-                // SAFETY: The HWND is a window or child control this program created and still owns.
-                ShowWindow(self.hwnd, SW_HIDE)
-            };
-        }
+        self.conceal_for_ui(hide);
+        self.region_outline = region && !audio_only;
         self.record_rect = if audio_only {
             None
         } else {
             Some(rect.unwrap_or_else(media::cursor_monitor_rect))
         };
+        let window = self.pending_window;
+        let resilient = self.pending_resilient || window;
+        self.pending_window = false;
+        self.pending_resilient = false;
         let options = media::RecordOptions {
             profile,
             rect: self.record_rect,
             audio_only,
             threads: self.settings.threads,
+            window,
+            resilient,
+            show_no_signal: self.settings.show_no_signal,
+            show_card: self.settings.show_card,
         };
         match media::Session::start(options) {
             Ok(session) => {
@@ -749,6 +835,7 @@ impl App {
             }
             Err(error) => {
                 self.record_rect = None;
+                self.region_outline = false;
                 self.outline.hide();
                 self.error(&error);
                 self.restore_window();
@@ -761,7 +848,9 @@ impl App {
             self.outline.hide();
             return;
         }
-        let rect = if self.mode == Mode::Recording && self.settings.highlight_region {
+        let rect = if show_recording_outline(self.settings.highlight_region, self.region_outline)
+            && self.mode == Mode::Recording
+        {
             self.record_rect
         } else {
             None
@@ -783,6 +872,7 @@ impl App {
         }
         .ok();
         self.record_rect = None;
+        self.region_outline = false;
         self.outline.hide();
         let Some(session) = self.session.take() else {
             return;
@@ -819,11 +909,19 @@ impl App {
                     ));
                 }
                 self.sync_outline();
-                if let Some(session) = &mut self.session {
-                    if let Err(error) = session.tick() {
-                        self.stop_capture();
-                        self.finish_error(&error);
-                    }
+                let failed = self
+                    .session
+                    .as_mut()
+                    .and_then(|session| session.tick().err());
+                if let Some(error) = failed {
+                    self.stop_capture();
+                    self.finish_error(&error);
+                } else if self
+                    .session
+                    .as_ref()
+                    .is_some_and(|session| session.finished())
+                {
+                    self.stop_capture();
                 }
             }
             Mode::Saving => {
@@ -889,6 +987,11 @@ impl App {
         self.saved_path = Some(path.clone());
         self.history.insert(0, (path, history_line_now()));
         self.history.truncate(ui::HISTORY_COUNT as usize);
+        settings::save_history(&self.history);
+        self.refresh_history();
+    }
+
+    fn refresh_history(&self) {
         let lines: Vec<String> = self
             .history
             .iter()
@@ -912,9 +1015,30 @@ impl App {
     }
 
     fn open_path(&mut self, path: &std::path::Path) {
+        self.copy_path(path);
+        self.reveal(path);
+    }
+
+    fn copy_path(&mut self, path: &std::path::Path) {
         if let Err(error) = media::copy_text_to_clipboard(&path.display().to_string()) {
             self.error(&error);
         }
+    }
+
+    fn copy_file(&mut self, id: i32, path: &std::path::Path) {
+        match media::copy_file_to_clipboard(path) {
+            Ok(()) => self.controls.acknowledge_copy(id),
+            Err(error) => self.error(&error),
+        }
+    }
+
+    fn open_file(&mut self, path: &std::path::Path) {
+        if let Err(error) = media::open_file(path) {
+            self.error(&error);
+        }
+    }
+
+    fn reveal(&mut self, path: &std::path::Path) {
         if let Err(error) = media::reveal_in_folder(path) {
             self.error(&error);
         }
@@ -934,6 +1058,22 @@ impl App {
         };
     }
 
+    fn conceal_for_ui(&mut self, from_window: bool) {
+        if !hide_while_active(from_window, self.settings.hide_active) {
+            return;
+        }
+        let visible = unsafe {
+            // SAFETY: The HWND is a window this program created.
+            IsWindowVisible(self.hwnd)
+        }
+        .as_bool();
+        self.restore_visible = remember_restore(self.restore_visible, visible);
+        unsafe {
+            // SAFETY: The HWND is a window this program created.
+            ShowWindow(self.hwnd, SW_HIDE)
+        };
+    }
+
     fn restore_window(&mut self) {
         if self.restore_visible {
             self.restore_visible = false;
@@ -941,15 +1081,44 @@ impl App {
         }
     }
 
+    fn window_shown(&self) -> bool {
+        unsafe {
+            // SAFETY: The HWND is the main window this program created.
+            IsWindowVisible(self.hwnd).as_bool() && !IsIconic(self.hwnd).as_bool()
+        }
+    }
+
+    fn sync_window_item(&self) {
+        let mut label = wide(tray_window_label(self.window_shown()));
+        let mut info = MENUITEMINFOW {
+            cbSize: std::mem::size_of::<MENUITEMINFOW>() as u32,
+            fMask: MIIM_STRING,
+            dwTypeData: PWSTR(label.as_mut_ptr()),
+            cch: label.len() as u32,
+            ..Default::default()
+        };
+        unsafe {
+            // SAFETY: The menu belongs to this window. The label lives until SetMenuItemInfoW returns, and only the text is replaced.
+            SetMenuItemInfoW(self.tray_menu, ID_TRAY_OPEN as u32, false, &mut info).ok();
+        }
+    }
+
     fn show_window(&self) {
         unsafe {
-            // SAFETY: The struct describes the tray icon owned by this window, and its size field is set.
+            // SAFETY: The HWND is the main window this program created.
 
             ShowWindow(self.hwnd, SW_RESTORE);
             ShowWindow(self.hwnd, SW_SHOW);
             SetForegroundWindow(self.hwnd);
             SetFocus(self.hwnd);
         }
+    }
+
+    fn hide_window(&self) {
+        unsafe {
+            // SAFETY: The HWND is the main window this program created.
+            ShowWindow(self.hwnd, SW_HIDE)
+        };
     }
 
     fn request_exit(&mut self) {
@@ -1061,7 +1230,16 @@ unsafe extern "system" fn wnd_proc(
             LRESULT(1)
         }
         WM_TIMER => {
-            app().tick();
+            if wparam.0 == ui::HISTORY_ACK_TIMER {
+                app().controls.clear_history_ack();
+                unsafe {
+                    // SAFETY: The HWND is the main window, and this timer id is the copy acknowledgement.
+                    KillTimer(hwnd, ui::HISTORY_ACK_TIMER)
+                }
+                .ok();
+            } else {
+                app().tick();
+            }
             LRESULT(0)
         }
         WM_TRAY => {
@@ -1078,6 +1256,7 @@ unsafe extern "system" fn wnd_proc(
                     let mut point = POINT::default();
                     GetCursorPos(&mut point).ok();
                     SetForegroundWindow(hwnd);
+                    app().sync_window_item();
                     TrackPopupMenu(
                         app().tray_menu,
                         TPM_RIGHTBUTTON,
