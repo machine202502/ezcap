@@ -33,6 +33,89 @@ document.querySelectorAll("[data-lang-set]").forEach((link) => {
   });
 });
 
+const shotImages = [...document.querySelectorAll(".hero-shot img, .shot img")];
+if (shotImages.length) {
+  const ru = document.documentElement.lang.toLowerCase().startsWith("ru");
+  const text = ru
+    ? { close: "Закрыть", prev: "Предыдущий скриншот", next: "Следующий скриншот" }
+    : { close: "Close", prev: "Previous screenshot", next: "Next screenshot" };
+  const dialog = document.createElement("dialog");
+  dialog.className = "lightbox";
+  dialog.innerHTML = `
+    <button class="lightbox-close" type="button" aria-label="${text.close}">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>
+    <button class="lightbox-nav lightbox-prev" type="button" aria-label="${text.prev}">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m14.5 6-6 6 6 6"/></svg>
+    </button>
+    <figure class="lightbox-frame">
+      <img alt="">
+      <figcaption></figcaption>
+    </figure>
+    <button class="lightbox-nav lightbox-next" type="button" aria-label="${text.next}">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9.5 6 6 6-6 6"/></svg>
+    </button>`;
+  document.body.appendChild(dialog);
+  const view = dialog.querySelector(".lightbox-frame img");
+  const caption = dialog.querySelector("figcaption");
+  let index = 0;
+  let closing = false;
+
+  function show(next) {
+    index = (next + shotImages.length) % shotImages.length;
+    const source = shotImages[index];
+    const note = source.closest("figure")?.querySelector("figcaption")?.textContent.trim();
+    view.src = source.currentSrc || source.src;
+    view.alt = source.alt;
+    caption.textContent = note || source.alt;
+    caption.hidden = !caption.textContent;
+  }
+
+  function open(start) {
+    closing = false;
+    dialog.classList.remove("is-closing");
+    show(start);
+    if (!dialog.open) dialog.showModal();
+  }
+
+  function close() {
+    if (!dialog.open || closing) return;
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      dialog.close();
+      return;
+    }
+    closing = true;
+    dialog.classList.add("is-closing");
+    dialog.querySelector(".lightbox-frame").addEventListener(
+      "animationend",
+      () => {
+        dialog.classList.remove("is-closing");
+        closing = false;
+        if (dialog.open) dialog.close();
+      },
+      { once: true }
+    );
+  }
+
+  shotImages.forEach((img, i) => {
+    img.addEventListener("click", () => open(i));
+  });
+  dialog.querySelector(".lightbox-close").addEventListener("click", close);
+  dialog.querySelector(".lightbox-prev").addEventListener("click", () => show(index - 1));
+  dialog.querySelector(".lightbox-next").addEventListener("click", () => show(index + 1));
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) close();
+  });
+  dialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    close();
+  });
+  dialog.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowLeft") show(index - 1);
+    if (event.key === "ArrowRight") show(index + 1);
+  });
+}
+
 // Local preview: when CI has not replaced the @@...@@ tokens yet, pull the
 // latest release version and asset links from the GitHub API.
 const TOKEN = "@@";
