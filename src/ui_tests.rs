@@ -14,6 +14,8 @@ fn snapshots_dir() -> PathBuf {
 
 fn capture_window(hwnd: HWND) -> Frame {
     unsafe {
+        // SAFETY: The HWND belongs to a window this process created. The RECT is a writable local.
+
         let mut rect = RECT::default();
         GetWindowRect(hwnd, &mut rect).unwrap();
         let width = rect.right - rect.left;
@@ -82,6 +84,8 @@ fn snapshot(name: &str, frame: &Frame) {
 
 fn register_test_classes() {
     unsafe {
+        // SAFETY: The module is this process, and the icon id is the resource embedded in the executable.
+
         let instance = GetModuleHandleW(None).unwrap();
         let class = WNDCLASSW {
             style: CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS,
@@ -120,6 +124,8 @@ fn main_window_snapshots_for_every_scale() {
     media::init();
     register_test_classes();
     unsafe {
+        // SAFETY: The class name lives for the process. The new HWND is stored and destroyed with its owner.
+
         CreateWindowExW(
             WINDOW_EX_STYLE(0),
             CLASS,
@@ -151,15 +157,24 @@ fn main_window_snapshots_for_every_scale() {
     assert!(app().controls.checked(ID_NOTIFY));
     assert_eq!(app().controls.selected(ID_SCALE), 0);
     app().show_window();
-    unsafe { assert!(IsWindowVisible(app().controls.get(ID_REFRESH)).as_bool()) };
+    unsafe {
+        // SAFETY: The HWND is a child control created with the main window.
+        assert!(IsWindowVisible(app().controls.get(ID_REFRESH)).as_bool())
+    };
     app().controls.set_idle(false, false);
-    unsafe { assert!(!IsWindowEnabled(app().controls.get(ID_REFRESH)).as_bool()) };
+    unsafe {
+        // SAFETY: The HWND is a child control created with the main window.
+        assert!(!IsWindowEnabled(app().controls.get(ID_REFRESH)).as_bool())
+    };
     app().controls.set_idle(true, false);
     for scale in [100, 125, 150, 175, 200, 225, 250, 300] {
         app().settings.scale = scale;
         app().controls.apply_scale(&app().settings);
         app().show_window();
-        unsafe { UpdateWindow(app().hwnd) };
+        unsafe {
+            // SAFETY: The HWND is a window this program created.
+            UpdateWindow(app().hwnd)
+        };
         std::thread::sleep(std::time::Duration::from_millis(40));
         snapshot(
             &format!("main-capture-{scale}"),
@@ -172,6 +187,8 @@ fn main_window_snapshots_for_every_scale() {
     app().controls.show_page(1);
     assert_eq!(app().controls.page, 1);
     unsafe {
+        // SAFETY: The HWND is a window this program created.
+
         assert!(IsWindowVisible(app().controls.get(ID_AUTOSTART)).as_bool());
         assert!(IsWindowVisible(app().controls.get(ID_REFRESH)).as_bool());
     }
@@ -239,6 +256,8 @@ fn main_window_snapshots_for_every_scale() {
     let set_fps = |id, fps| {
         let slider = app().controls.get(id);
         unsafe {
+            // SAFETY: The target is a window this program created. Any pointer in the message addresses memory that outlives the call.
+
             SendMessageW(slider, TBM_SETPOS, WPARAM(1), LPARAM(fps));
             SendMessageW(app().hwnd, WM_HSCROLL, WPARAM(0), LPARAM(slider.0 as isize));
         }
@@ -314,7 +333,10 @@ fn main_window_snapshots_for_every_scale() {
         (3, 50)
     );
     for offset in 0..=2 {
-        unsafe { UpdateWindow(app().controls.get(ID_FORMAT + offset)) };
+        unsafe {
+            // SAFETY: The HWND is a window this program created and has not destroyed.
+            UpdateWindow(app().controls.get(ID_FORMAT + offset))
+        };
     }
     snapshot("main-capture-radio-gif-200", &capture_window(app().hwnd));
     app().command(ID_FORMAT + 2, 0);
@@ -356,6 +378,8 @@ fn main_window_snapshots_for_every_scale() {
     assert_eq!((saved.ui.video[2].height, saved.ui.video[2].fps), (720, 40));
     app().request_exit();
     unsafe {
+        // SAFETY: The test owns the App stored in APP, and nothing else reads it after this.
+
         drop(Box::from_raw(APP));
         APP = std::ptr::null_mut();
     }
@@ -403,6 +427,8 @@ fn region_snapshots_on_a_fake_monitor() {
         let overlay = region::test_hwnd();
         let before = region::chrome_screen_rect(region::Role::Copy).expect("copy control");
         unsafe {
+            // SAFETY: The target is a window this program created. Any pointer in the message addresses memory that outlives the call.
+
             SendMessageW(
                 overlay,
                 WM_LBUTTONDOWN,
@@ -418,6 +444,8 @@ fn region_snapshots_on_a_fake_monitor() {
         assert_ne!((before.left, before.top), (after.left, after.top));
         region::select_tool(region::Role::Text);
         unsafe {
+            // SAFETY: The HWND belongs to a window this process created. The RECT is a writable local.
+
             SendMessageW(
                 overlay,
                 WM_LBUTTONDOWN,
@@ -509,6 +537,8 @@ fn text_tool_opens_an_editor() {
     region::select_tool(region::Role::Text);
     let overlay = region::test_hwnd();
     unsafe {
+        // SAFETY: The HWND belongs to a window this process created. The RECT is a writable local.
+
         SendMessageW(
             overlay,
             WM_LBUTTONDOWN,
@@ -636,6 +666,8 @@ fn recording_keeps_screenshot_controls_and_blocks_another_capture() {
     media::init();
     register_test_classes();
     unsafe {
+        // SAFETY: The HWND is a child control created with the main window.
+
         CreateWindowExW(
             WINDOW_EX_STYLE(0),
             CLASS,
@@ -656,6 +688,8 @@ fn recording_keeps_screenshot_controls_and_blocks_another_capture() {
     app().controls.check(ID_HIDE_ACTIVE, true);
     test_mark_recording(app());
     unsafe {
+        // SAFETY: The HWND is a child control created with the main window.
+
         assert!(IsWindowEnabled(app().controls.get(ID_SHOT_SCREEN)).as_bool());
         assert!(IsWindowEnabled(app().controls.get(ID_SHOT_REGION)).as_bool());
         assert!(!IsWindowEnabled(app().controls.get(ID_CAPTURE_SCREEN)).as_bool());
@@ -668,11 +702,17 @@ fn recording_keeps_screenshot_controls_and_blocks_another_capture() {
     app().command(ID_CAPTURE_AUDIO, 0);
     app().command(ID_TRAY_VIDEO, 0);
     assert!(matches!(app().mode, Mode::Recording));
-    let visible = unsafe { IsWindowVisible(app().hwnd).as_bool() };
+    let visible = unsafe {
+        // SAFETY: The HWND is a window this program created.
+        IsWindowVisible(app().hwnd).as_bool()
+    };
     app().command(ID_TRAY_AREA, 0);
     assert!(region::active(), "a screenshot area opens during recording");
     assert_eq!(
-        unsafe { IsWindowVisible(app().hwnd).as_bool() },
+        unsafe {
+            // SAFETY: The HWND is a window this program created.
+            IsWindowVisible(app().hwnd).as_bool()
+        },
         visible,
         "the tray does not hide the window"
     );
@@ -686,6 +726,7 @@ fn recording_keeps_screenshot_controls_and_blocks_another_capture() {
     app().region_done();
     assert!(matches!(app().mode, Mode::Recording));
     unsafe {
+        // SAFETY: The HWND is the test window created above and is not used after this call.
         DestroyWindow(app().hwnd).ok();
     }
 }
@@ -717,6 +758,8 @@ fn about_popup_snapshot() {
     media::init();
     register_test_classes();
     unsafe {
+        // SAFETY: The HWND is a window this program created and has not destroyed.
+
         CreateWindowExW(
             WINDOW_EX_STYLE(0),
             CLASS,
@@ -735,11 +778,15 @@ fn about_popup_snapshot() {
     }
     app().show_window();
     unsafe {
+        // SAFETY: The HWND is a window this program created and has not destroyed.
+
         UpdateWindow(app().hwnd);
     }
     let frame = capture_about_dialog(app().hwnd);
     snapshot("about-popup", &frame);
     unsafe {
+        // SAFETY: The HWND was created by this program and is not used after this call.
+
         DestroyWindow(app().hwnd).ok();
     }
 }

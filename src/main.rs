@@ -1,5 +1,6 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 #![allow(unused_must_use)]
+#![deny(clippy::undocumented_unsafe_blocks)]
 
 mod capture;
 mod geom;
@@ -97,6 +98,8 @@ fn show_about(owner: HWND) {
     config.pszContent = PCWSTR(content.as_ptr());
     config.pfCallback = Some(about_link);
     unsafe {
+        // SAFETY: The dialog strings and callback outlive this call, and cbSize matches the struct.
+
         TaskDialogIndirect(&config, None, None, None).ok();
     }
 }
@@ -118,6 +121,8 @@ pub(crate) fn capture_about_dialog(owner: HWND) -> media::Frame {
 fn print_window_frame(hwnd: HWND) -> media::Frame {
     use windows::Win32::Storage::Xps::{PrintWindow, PRINT_WINDOW_FLAGS};
     unsafe {
+        // SAFETY: The HWND belongs to a window this process created. The RECT is a writable local.
+
         let mut rect = RECT::default();
         GetWindowRect(hwnd, &mut rect).unwrap();
         let width = rect.right - rect.left;
@@ -153,6 +158,7 @@ fn print_window_frame(hwnd: HWND) -> media::Frame {
     }
 }
 
+// SAFETY: The task dialog calls this for its own notifications. A hyperlink argument is a NUL-terminated string the dialog keeps alive for the callback.
 unsafe extern "system" fn about_link(
     hwnd: HWND,
     msg: TASKDIALOG_NOTIFICATIONS,
@@ -240,7 +246,10 @@ fn test_mark_recording(app: &mut App) {
 }
 
 fn history_line_now() -> String {
-    let time = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
+    let time = unsafe {
+        // SAFETY: The call only reads the system clock into a value the API writes.
+        windows::Win32::System::SystemInformation::GetLocalTime()
+    };
     history_stamp(
         time.wDay,
         time.wMonth,
@@ -252,11 +261,16 @@ fn history_line_now() -> String {
 }
 
 fn app<'a>() -> &'a mut App {
-    unsafe { &mut *APP }
+    unsafe {
+        // SAFETY: APP was stored in WM_CREATE and is cleared only after the window is destroyed. Callers run on the UI thread.
+        &mut *APP
+    }
 }
 
 pub(crate) fn notify_region_closed() {
     unsafe {
+        // SAFETY: The window handle belongs to this program. The message carries no borrowed pointer.
+
         if !APP.is_null() {
             PostMessageW((*APP).hwnd, WM_REGION, WPARAM(0), LPARAM(0)).ok();
         }
@@ -341,7 +355,10 @@ impl App {
             base_icon: HICON::default(),
             status_icon: HICON::default(),
             icon_mode: None,
-            background: unsafe { CreateSolidBrush(BACKGROUND) },
+            background: unsafe {
+                // SAFETY: The color is a plain COLORREF. The brush is stored for the process or deleted in this block.
+                CreateSolidBrush(BACKGROUND)
+            },
             restore_visible: false,
             hide_region: true,
             quit_after_save: false,
@@ -361,9 +378,15 @@ impl App {
     }
 
     fn build_tray(&mut self) {
-        self.tray_menu = unsafe { CreatePopupMenu() }.unwrap();
+        self.tray_menu = unsafe {
+            // SAFETY: The menu is stored on the window and destroyed with it.
+            CreatePopupMenu()
+        }
+        .unwrap();
         let mut items = vec![(ID_TRAY_OPEN, "Open window", MenuGlyph::Window)];
         unsafe {
+            // SAFETY: The menu belongs to this window, and the item text is NUL-terminated for the duration of the call.
+
             AppendMenuW(
                 self.tray_menu,
                 MF_STRING,
@@ -372,7 +395,11 @@ impl App {
             )
         }
         .unwrap();
-        unsafe { AppendMenuW(self.tray_menu, MF_SEPARATOR, 0, None) }.unwrap();
+        unsafe {
+            // SAFETY: The menu belongs to this window, and the item text is NUL-terminated for the duration of the call.
+            AppendMenuW(self.tray_menu, MF_SEPARATOR, 0, None)
+        }
+        .unwrap();
         for (id, text, glyph) in [
             (ID_TRAY_AREA, "Select area", MenuGlyph::Area),
             (ID_TRAY_SHOT, "Screenshot screen", MenuGlyph::Shot),
@@ -381,6 +408,8 @@ impl App {
             (ID_TRAY_STOP, "Stop capture", MenuGlyph::Stop),
         ] {
             unsafe {
+                // SAFETY: The menu belongs to this window, and the item text is NUL-terminated for the duration of the call.
+
                 AppendMenuW(
                     self.tray_menu,
                     MF_STRING,
@@ -391,9 +420,16 @@ impl App {
             .unwrap();
             items.push((id, text, glyph));
         }
-        unsafe { AppendMenuW(self.tray_menu, MF_SEPARATOR, 0, None) }.unwrap();
-        unsafe { AppendMenuW(self.tray_menu, MF_STRING, ID_TRAY_EXIT as usize, w!("Exit")) }
-            .unwrap();
+        unsafe {
+            // SAFETY: The menu belongs to this window, and the item text is NUL-terminated for the duration of the call.
+            AppendMenuW(self.tray_menu, MF_SEPARATOR, 0, None)
+        }
+        .unwrap();
+        unsafe {
+            // SAFETY: The menu belongs to this window, and the item text is NUL-terminated for the duration of the call.
+            AppendMenuW(self.tray_menu, MF_STRING, ID_TRAY_EXIT as usize, w!("Exit"))
+        }
+        .unwrap();
         items.push((ID_TRAY_EXIT, "Exit", MenuGlyph::Exit));
         for (id, _, glyph) in items {
             let bitmap = menu_bitmap(glyph);
@@ -405,6 +441,8 @@ impl App {
                 ..Default::default()
             };
             unsafe {
+                // SAFETY: The menu and the bitmap in the info struct both belong to this window.
+
                 SetMenuItemInfoW(self.tray_menu, id as u32, false, &info).ok();
             }
         }
@@ -414,12 +452,19 @@ impl App {
             uID: 1,
             uFlags: NIF_MESSAGE | NIF_ICON | NIF_TIP,
             uCallbackMessage: WM_TRAY,
-            hIcon: unsafe { LoadIconW(GetModuleHandleW(None).unwrap(), module_icon()) }
-                .unwrap_or_default(),
+            hIcon: unsafe {
+                // SAFETY: The module is this process, and the icon id is the resource embedded in the executable.
+                LoadIconW(GetModuleHandleW(None).unwrap(), module_icon())
+            }
+            .unwrap_or_default(),
             ..Default::default()
         };
         nid.szTip[..wide("ezcap").len()].copy_from_slice(&wide("ezcap"));
-        unsafe { Shell_NotifyIconW(NIM_ADD, &nid) }.ok();
+        unsafe {
+            // SAFETY: The struct describes the tray icon owned by this window, and its size field is set.
+            Shell_NotifyIconW(NIM_ADD, &nid)
+        }
+        .ok();
         self.base_icon = nid.hIcon;
         self.status_icon = nid.hIcon;
         self.tray = nid;
@@ -433,13 +478,21 @@ impl App {
         if self.icon_mode != Some(self.mode) {
             let icon = tray_status_icon(self.base_icon, self.mode);
             if self.status_icon != self.base_icon {
-                unsafe { DestroyIcon(self.status_icon) }.ok();
+                unsafe {
+                    // SAFETY: The struct describes the tray icon owned by this window, and its size field is set.
+                    DestroyIcon(self.status_icon)
+                }
+                .ok();
             }
             self.status_icon = icon;
             self.icon_mode = Some(self.mode);
         }
         self.tray.hIcon = self.status_icon;
-        unsafe { Shell_NotifyIconW(NIM_MODIFY, &self.tray) }.ok();
+        unsafe {
+            // SAFETY: The struct describes the tray icon owned by this window, and its size field is set.
+            Shell_NotifyIconW(NIM_MODIFY, &self.tray)
+        }
+        .ok();
     }
 
     fn command(&mut self, id: i32, notification: u16) {
@@ -572,8 +625,15 @@ impl App {
         self.hide_region = hide;
         self.controls.read_ui(&mut self.settings);
         if hide_while_active(hide, self.settings.hide_active) && !recording {
-            self.restore_visible = unsafe { IsWindowVisible(self.hwnd) }.as_bool();
-            unsafe { ShowWindow(self.hwnd, SW_HIDE) };
+            self.restore_visible = unsafe {
+                // SAFETY: The HWND is a window this program created.
+                IsWindowVisible(self.hwnd)
+            }
+            .as_bool();
+            unsafe {
+                // SAFETY: The HWND is a window or child control this program created and still owns.
+                ShowWindow(self.hwnd, SW_HIDE)
+            };
         }
         if recording {
             self.outline.hide();
@@ -653,8 +713,15 @@ impl App {
             return;
         }
         if hide_while_active(hide, self.settings.hide_active) {
-            self.restore_visible = unsafe { IsWindowVisible(self.hwnd) }.as_bool();
-            unsafe { ShowWindow(self.hwnd, SW_HIDE) };
+            self.restore_visible = unsafe {
+                // SAFETY: The HWND is a window this program created.
+                IsWindowVisible(self.hwnd)
+            }
+            .as_bool();
+            unsafe {
+                // SAFETY: The HWND is a window or child control this program created and still owns.
+                ShowWindow(self.hwnd, SW_HIDE)
+            };
         }
         self.record_rect = if audio_only {
             None
@@ -675,7 +742,10 @@ impl App {
                 self.mode = Mode::Recording;
                 self.update_state();
                 self.sync_outline();
-                unsafe { SetTimer(self.hwnd, TIMER_ID, 200, None) };
+                unsafe {
+                    // SAFETY: The HWND is the main window, and this timer id is the one later killed.
+                    SetTimer(self.hwnd, TIMER_ID, 200, None)
+                };
             }
             Err(error) => {
                 self.record_rect = None;
@@ -707,7 +777,11 @@ impl App {
         if self.mode != Mode::Recording {
             return;
         }
-        unsafe { KillTimer(self.hwnd, TIMER_ID) }.ok();
+        unsafe {
+            // SAFETY: The HWND is the main window, and this timer id is the one later killed.
+            KillTimer(self.hwnd, TIMER_ID)
+        }
+        .ok();
         self.record_rect = None;
         self.outline.hide();
         let Some(session) = self.session.take() else {
@@ -719,7 +793,10 @@ impl App {
         match session.stop() {
             Ok(finalizer) => {
                 self.finalizer = Some(finalizer);
-                unsafe { SetTimer(self.hwnd, TIMER_ID, 100, None) };
+                unsafe {
+                    // SAFETY: The HWND is the main window, and this timer id is the one later killed.
+                    SetTimer(self.hwnd, TIMER_ID, 100, None)
+                };
             }
             Err(error) => self.finish_error(&error),
         }
@@ -784,7 +861,11 @@ impl App {
     }
 
     fn finish_error(&mut self, error: &str) {
-        unsafe { KillTimer(self.hwnd, TIMER_ID) }.ok();
+        unsafe {
+            // SAFETY: The HWND is the main window, and this timer id is the one SetTimer used.
+            KillTimer(self.hwnd, TIMER_ID)
+        }
+        .ok();
         self.session = None;
         self.finalizer = None;
         self.mode = Mode::Idle;
@@ -842,6 +923,8 @@ impl App {
     fn error(&self, text: &str) {
         self.controls.set_text(ID_STATUS, text);
         unsafe {
+            // SAFETY: The HWND is a window or child control this program created and still owns.
+
             MessageBoxW(
                 self.hwnd,
                 PCWSTR(wide(text).as_ptr()),
@@ -860,6 +943,8 @@ impl App {
 
     fn show_window(&self) {
         unsafe {
+            // SAFETY: The struct describes the tray icon owned by this window, and its size field is set.
+
             ShowWindow(self.hwnd, SW_RESTORE);
             ShowWindow(self.hwnd, SW_SHOW);
             SetForegroundWindow(self.hwnd);
@@ -880,12 +965,28 @@ impl App {
         if region::active() {
             region::cancel();
         }
-        unsafe { Shell_NotifyIconW(NIM_DELETE, &self.tray) }.ok();
-        if self.status_icon != self.base_icon {
-            unsafe { DestroyIcon(self.status_icon) }.ok();
+        unsafe {
+            // SAFETY: The struct describes the tray icon owned by this window, and its size field is set.
+            Shell_NotifyIconW(NIM_DELETE, &self.tray)
         }
-        unsafe { DestroyIcon(self.base_icon) }.ok();
-        unsafe { DestroyWindow(self.hwnd) }.ok();
+        .ok();
+        if self.status_icon != self.base_icon {
+            unsafe {
+                // SAFETY: The icon was created for this window and is no longer the one in use.
+                DestroyIcon(self.status_icon)
+            }
+            .ok();
+        }
+        unsafe {
+            // SAFETY: The icon was created for this window and is no longer the one in use.
+            DestroyIcon(self.base_icon)
+        }
+        .ok();
+        unsafe {
+            // SAFETY: The menu belongs to the main window, and the id is one of its items.
+            DestroyWindow(self.hwnd)
+        }
+        .ok();
     }
 
     fn update_state(&mut self) {
@@ -902,6 +1003,7 @@ impl App {
             ID_TRAY_STOP,
         ] {
             unsafe {
+                // SAFETY: The menu belongs to the main window, and the id is one of its items.
                 EnableMenuItem(
                     self.tray_menu,
                     id as u32,
@@ -922,6 +1024,7 @@ impl App {
     }
 }
 
+// SAFETY: Windows calls this with a window of this class. Paint uses the DC from BeginPaint, and every other message is forwarded to DefWindowProc.
 unsafe extern "system" fn wnd_proc(
     hwnd: HWND,
     message: u32,
@@ -1050,7 +1153,10 @@ enum MenuGlyph {
 
 fn menu_bitmap(glyph: MenuGlyph) -> HBITMAP {
     let size = 16i32;
-    let mut info: BITMAPINFO = unsafe { std::mem::zeroed() };
+    let mut info: BITMAPINFO = unsafe {
+        // SAFETY: Every field the API reads, including the size, is written before the struct is used.
+        std::mem::zeroed()
+    };
     info.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
     info.bmiHeader.biWidth = size;
     info.bmiHeader.biHeight = -size;
@@ -1058,16 +1164,26 @@ fn menu_bitmap(glyph: MenuGlyph) -> HBITMAP {
     info.bmiHeader.biBitCount = 32;
     info.bmiHeader.biCompression = BI_RGB.0;
     let mut bits = std::ptr::null_mut();
-    let screen = unsafe { GetDC(None) };
+    let screen = unsafe {
+        // SAFETY: The bitmap header has its size and bit depth set. The bits pointer is used only for that byte count.
+        GetDC(None)
+    };
     let bitmap = unsafe {
+        // SAFETY: The bitmap header has its size and bit depth set. The bits pointer is used only for that byte count.
+
         CreateDIBSection(screen, &info, DIB_RGB_COLORS, &mut bits, None, 0).unwrap_or_default()
     };
-    unsafe { ReleaseDC(None, screen) };
+    unsafe {
+        // SAFETY: This DC was obtained with GetDC in the same call and is released once.
+        ReleaseDC(None, screen)
+    };
     if bits.is_null() {
         return bitmap;
     }
-    let pixels =
-        unsafe { std::slice::from_raw_parts_mut(bits.cast::<u8>(), (size * size * 4) as usize) };
+    let pixels = unsafe {
+        // SAFETY: The pointer addresses a live buffer, and the length is exactly that buffer's size.
+        std::slice::from_raw_parts_mut(bits.cast::<u8>(), (size * size * 4) as usize)
+    };
     let sea = theme::bgra(theme::ACCENT);
     let red = theme::bgra(theme::ALERT);
     let put = |pixels: &mut [u8], x: i32, y: i32, color: [u8; 4]| {
@@ -1173,6 +1289,8 @@ fn tray_status_icon(base: HICON, mode: Mode) -> HICON {
         return base;
     }
     unsafe {
+        // SAFETY: The color is a plain COLORREF. The brush is stored for the process or deleted in this block.
+
         let screen = GetDC(None);
         let dc = CreateCompatibleDC(screen);
         let mut info: BITMAPINFO = std::mem::zeroed();
@@ -1240,6 +1358,8 @@ fn tray_status_icon(base: HICON, mode: Mode) -> HICON {
 
 fn main() {
     unsafe {
+        // SAFETY: The window handle belongs to this program. The message carries no borrowed pointer.
+
         SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2).ok();
         let _ = windows::Win32::System::Com::CoInitializeEx(
             None,

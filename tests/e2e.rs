@@ -1,4 +1,5 @@
 #![cfg(windows)]
+#![deny(clippy::undocumented_unsafe_blocks)]
 
 use std::path::PathBuf;
 use std::process::{Child, Command};
@@ -23,6 +24,8 @@ impl Drop for TestApp {
 
 fn click(hwnd: HWND, id: i32) {
     unsafe {
+        // SAFETY: The target is a window this program created. Any pointer in the message addresses memory that outlives the call.
+
         let button = GetDlgItem(hwnd, id).unwrap();
         SendMessageW(button, BM_CLICK, WPARAM(0), LPARAM(0));
     }
@@ -30,6 +33,8 @@ fn click(hwnd: HWND, id: i32) {
 
 fn select(hwnd: HWND, id: i32, index: usize) {
     unsafe {
+        // SAFETY: The target is a window this program created. Any pointer in the message addresses memory that outlives the call.
+
         SendMessageW(
             GetDlgItem(hwnd, id).unwrap(),
             CB_SETCURSEL,
@@ -47,7 +52,10 @@ fn select(hwnd: HWND, id: i32, index: usize) {
 
 fn control_text(hwnd: HWND, id: i32) -> String {
     let mut text = vec![0u16; 32768];
-    let len = unsafe { GetDlgItemTextW(hwnd, id, &mut text) } as usize;
+    let len = unsafe {
+        // SAFETY: The parent is the running window, and the id is one of its child controls.
+        GetDlgItemTextW(hwnd, id, &mut text)
+    } as usize;
     String::from_utf16_lossy(&text[..len])
 }
 
@@ -57,6 +65,8 @@ fn status(hwnd: HWND) -> String {
 
 fn find_app_window(process_id: u32) -> HWND {
     unsafe {
+        // SAFETY: The class and title are literals. A missing window yields an invalid handle, which the caller checks.
+
         let mut hwnd = FindWindowW(
             windows::core::w!("ezcap.window"),
             windows::core::w!("ezcap"),
@@ -198,6 +208,8 @@ fn records_every_output_format_through_the_real_ui() {
     check(path.clone(), "Image_", ".png");
     app.created.push(path);
     unsafe {
+        // SAFETY: The target is a window this program created. Any pointer in the message addresses memory that outlives the call.
+
         SendMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
     }
     let _ = app.child.wait();

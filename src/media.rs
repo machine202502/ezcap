@@ -110,6 +110,7 @@ pub fn init() {
 }
 
 pub fn cursor_monitor_rect() -> Rect {
+    // SAFETY: The POINT and MONITORINFO are writable locals. cbSize is set before GetMonitorInfoW.
     unsafe {
         let mut point = POINT::default();
         GetCursorPos(&mut point).ok();
@@ -130,6 +131,7 @@ pub fn cursor_monitor_rect() -> Rect {
 }
 
 pub fn grab(rect: Rect) -> Result<Frame, String> {
+    // SAFETY: The screen DC is released before return. The bitmap header size is set, and the copy uses only the requested byte count.
     unsafe {
         let screen = GetDC(None);
         if screen.is_invalid() {
@@ -194,6 +196,7 @@ pub fn grab(rect: Rect) -> Result<Frame, String> {
 }
 
 pub fn output_path(kind: &str, extension: &str) -> Result<PathBuf, String> {
+    // SAFETY: The folder path from the shell is freed with CoTaskMemFree before this function returns. Only the characters up to the NUL are read.
     unsafe {
         let raw = SHGetKnownFolderPath(&FOLDERID_Pictures, KNOWN_FOLDER_FLAG(0), None)
             .map_err(|e| e.to_string())?;
@@ -392,6 +395,7 @@ fn copy_bgra(data: &Frame, destination: &mut frame::Video) -> Result<(), String>
 }
 
 pub fn copy_text_to_clipboard(text: &str) -> Result<(), String> {
+    // SAFETY: The clipboard is opened and closed on this thread. The allocated block matches the UTF-16 text and is given to the clipboard.
     unsafe {
         OpenClipboard(None).map_err(|e| e.to_string())?;
         EmptyClipboard().map_err(|e| e.to_string())?;
@@ -423,6 +427,7 @@ pub fn reveal_in_folder(path: &Path) -> Result<(), String> {
         .encode_utf16()
         .chain(std::iter::once(0))
         .collect::<Vec<_>>();
+    // SAFETY: The verb, program, and parameters are NUL-terminated and live until ShellExecuteW returns.
     let code = unsafe {
         ShellExecuteW(
             None,
@@ -442,6 +447,7 @@ pub fn reveal_in_folder(path: &Path) -> Result<(), String> {
 }
 
 pub fn copy_file_to_clipboard(path: &Path) -> Result<(), String> {
+    // SAFETY: The clipboard is opened and closed on this thread. The drop list is sized to the path and given to the clipboard.
     unsafe {
         OpenClipboard(None).map_err(|e| e.to_string())?;
         EmptyClipboard().map_err(|e| e.to_string())?;
@@ -473,6 +479,7 @@ pub fn copy_file_to_clipboard(path: &Path) -> Result<(), String> {
 }
 
 pub fn copy_image_to_clipboard(frame: &Frame) -> Result<(), String> {
+    // SAFETY: The screen DC is released before return. The bitmap header size is set, and the copy uses only the frame's byte count.
     unsafe {
         let screen = GetDC(None);
         let dc = CreateCompatibleDC(screen);
@@ -504,6 +511,7 @@ pub fn copy_image_to_clipboard(frame: &Frame) -> Result<(), String> {
 
 pub fn completion_sound() {
     static SOUND: &[u8] = include_bytes!("../assets/recording-saved.wav");
+    // SAFETY: The WAV bytes are embedded for the process lifetime, and SND_MEMORY plays that buffer.
     unsafe {
         windows::Win32::Media::Audio::PlaySoundW(
             PCWSTR(SOUND.as_ptr().cast()),
@@ -517,6 +525,7 @@ pub fn completion_sound() {
 }
 
 fn device_enumerator() -> Result<windows::Win32::Media::Audio::IMMDeviceEnumerator, String> {
+    // SAFETY: The COM object is released when this Result is dropped.
     unsafe {
         windows::Win32::System::Com::CoCreateInstance(
             &windows::Win32::Media::Audio::MMDeviceEnumerator,
@@ -528,6 +537,7 @@ fn device_enumerator() -> Result<windows::Win32::Media::Audio::IMMDeviceEnumerat
 }
 
 fn pwstr(value: windows::core::PWSTR) -> String {
+    // SAFETY: A null pointer returns before any read. Otherwise only the characters up to the NUL are copied.
     unsafe {
         if value.is_null() {
             return String::new();
@@ -543,6 +553,7 @@ fn pwstr(value: windows::core::PWSTR) -> String {
 }
 
 fn endpoint_name(device: &windows::Win32::Media::Audio::IMMDevice) -> String {
+    // SAFETY: The device is alive. The allocated friendly name is freed with CoTaskMemFree before return.
     unsafe {
         use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
         use windows::Win32::System::Com::StructuredStorage::PropVariantToStringAlloc;
@@ -562,6 +573,7 @@ fn endpoint_name(device: &windows::Win32::Media::Audio::IMMDevice) -> String {
 pub fn microphones() -> Vec<AudioDevice> {
     (|| {
         let enumerator = device_enumerator().ok()?;
+        // SAFETY: The enumerator is alive. The returned collection is released when dropped.
         let collection = unsafe {
             enumerator.EnumAudioEndpoints(
                 windows::Win32::Media::Audio::eCapture,
@@ -569,12 +581,15 @@ pub fn microphones() -> Vec<AudioDevice> {
             )
         }
         .ok()?;
+        // SAFETY: The endpoint collection is alive for this call.
         let count = unsafe { collection.GetCount() }.ok()?;
         let mut result = Vec::new();
         for index in 0..count {
+            // SAFETY: index is below the count this collection just returned.
             let Ok(device) = (unsafe { collection.Item(index) }) else {
                 continue;
             };
+            // SAFETY: The device came from this live collection.
             let Ok(id) = (unsafe { device.GetId() }) else {
                 continue;
             };
@@ -1187,8 +1202,10 @@ fn encode_chain(
     let mut encoder = None;
     let mut packet = Packet::empty();
     loop {
-        let read =
-            unsafe { ffmpeg::ffi::av_read_frame(opened.input.as_mut_ptr(), packet.as_mut_ptr()) };
+        let read = unsafe {
+            // SAFETY: Both pointers belong to the open ffmpeg input and its packet. A negative code ends the read.
+            ffmpeg::ffi::av_read_frame(opened.input.as_mut_ptr(), packet.as_mut_ptr())
+        };
         if read < 0 {
             break;
         }
@@ -1265,8 +1282,10 @@ fn feed(
 ) -> Result<(), String> {
     let mut packet = Packet::empty();
     loop {
-        let read =
-            unsafe { ffmpeg::ffi::av_read_frame(opened.input.as_mut_ptr(), packet.as_mut_ptr()) };
+        let read = unsafe {
+            // SAFETY: Both pointers belong to the open ffmpeg input and its packet. A negative code ends the read.
+            ffmpeg::ffi::av_read_frame(opened.input.as_mut_ptr(), packet.as_mut_ptr())
+        };
         if read < 0 {
             break;
         }

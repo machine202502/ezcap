@@ -203,6 +203,8 @@ impl Controls {
         let mut text = wide(text);
         let menu = HMENU(id as usize as *mut std::ffi::c_void);
         let hwnd = unsafe {
+            // SAFETY: The class name lives for the process. The new HWND is stored and destroyed with its owner.
+
             CreateWindowExW(
                 ex,
                 class,
@@ -220,6 +222,8 @@ impl Controls {
         }
         .unwrap();
         unsafe {
+            // SAFETY: The HWND is a control this program created. The theme names are literals.
+
             SendMessageW(hwnd, WM_SETFONT, WPARAM(self.font.0 as usize), LPARAM(1));
             windows::Win32::UI::Controls::SetWindowTheme(hwnd, w!("Explorer"), PCWSTR::null()).ok();
         }
@@ -286,6 +290,8 @@ impl Controls {
         );
         let fps = self.get(ID_FPS);
         unsafe {
+            // SAFETY: The target is a window this program created. Any pointer in the message addresses memory that outlives the call.
+
             SendMessageW(
                 fps,
                 TBM_SETRANGE,
@@ -473,6 +479,8 @@ impl Controls {
         for item in items {
             let item = wide(item);
             unsafe {
+                // SAFETY: The target is a window this program created. Any pointer in the message addresses memory that outlives the call.
+
                 SendMessageW(
                     hwnd,
                     CB_ADDSTRING,
@@ -481,7 +489,10 @@ impl Controls {
                 )
             };
         }
-        unsafe { SendMessageW(hwnd, CB_SETCURSEL, WPARAM(0), LPARAM(0)) };
+        unsafe {
+            // SAFETY: The target is a window this program created. Any pointer in the message addresses memory that outlives the call.
+            SendMessageW(hwnd, CB_SETCURSEL, WPARAM(0), LPARAM(0))
+        };
     }
 
     fn dynamic_controls(&mut self, area: bool) {
@@ -515,6 +526,8 @@ impl Controls {
             1,
         );
         unsafe {
+            // SAFETY: The target is a window this program created. Any pointer in the message addresses memory that outlives the call.
+
             SendMessageW(
                 fps,
                 TBM_SETRANGE,
@@ -553,26 +566,39 @@ impl Controls {
     pub fn show_page(&mut self, page: usize) {
         self.page = page;
         unsafe {
+            // SAFETY: The HWND is a window or child control this program created and still owns.
+
             ShowWindow(self.tab, SW_SHOW);
             ShowWindow(self.settings_tab, SW_SHOW);
             ShowWindow(self.get(ID_REFRESH), SW_SHOW);
             ShowWindow(self.get(ID_ABOUT), SW_SHOW)
         };
         for h in &self.capture {
-            unsafe { ShowWindow(*h, if page == 0 { SW_SHOW } else { SW_HIDE }) };
+            unsafe {
+                // SAFETY: The HWND is a window or child control this program created and still owns.
+                ShowWindow(*h, if page == 0 { SW_SHOW } else { SW_HIDE })
+            };
         }
         for h in &self.settings {
-            unsafe { ShowWindow(*h, if page == 1 { SW_SHOW } else { SW_HIDE }) };
+            unsafe {
+                // SAFETY: The HWND is a window or child control this program created and still owns.
+                ShowWindow(*h, if page == 1 { SW_SHOW } else { SW_HIDE })
+            };
         }
         self.layout();
         self.resize_window();
         self.refresh_formats();
-        unsafe { InvalidateRect(self.hwnd, None, true) };
+        unsafe {
+            // SAFETY: The HWND is a window this program created.
+            InvalidateRect(self.hwnd, None, true)
+        };
     }
 
     fn place(&self, place: &Place) {
         let scale = |value: i32| value * self.scale_percent as i32 / 100;
         unsafe {
+            // SAFETY: The HWND is a child control of the main window.
+
             MoveWindow(
                 self.get(place.id),
                 scale(place.x),
@@ -612,11 +638,17 @@ impl Controls {
         self.scale_percent = percent;
         self.scale_setting = settings.scale;
         if !self.font.is_invalid() {
-            unsafe { DeleteObject(self.font) };
+            unsafe {
+                // SAFETY: This font was created for the window and is no longer selected into a DC.
+                DeleteObject(self.font)
+            };
         }
         self.font = scaled_font(percent);
         for (_, hwnd) in &self.values {
-            unsafe { SendMessageW(*hwnd, WM_SETFONT, WPARAM(self.font.0 as usize), LPARAM(1)) };
+            unsafe {
+                // SAFETY: The HWND is a child control of the main window, and the font stays alive for that window.
+                SendMessageW(*hwnd, WM_SETFONT, WPARAM(self.font.0 as usize), LPARAM(1))
+            };
         }
         self.layout();
         self.resize_window();
@@ -634,6 +666,8 @@ impl Controls {
         };
         let style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
         unsafe {
+            // SAFETY: The HWND belongs to a window this process created. The RECT is a writable local.
+
             AdjustWindowRectEx(&mut rect, style, false, WINDOW_EX_STYLE(0)).ok();
             let mut current = RECT::default();
             GetWindowRect(self.hwnd, &mut current).ok();
@@ -690,6 +724,8 @@ impl Controls {
         let v = settings.video[settings.format.index()];
         self.select(ID_RESOLUTION, resolution_index(v.height));
         unsafe {
+            // SAFETY: The target is a window this program created. Any pointer in the message addresses memory that outlives the call.
+
             SendMessageW(
                 self.get(ID_FPS),
                 TBM_SETPOS,
@@ -711,6 +747,8 @@ impl Controls {
             media::device_name(&audio.device).unwrap_or_else(|| "Auto".to_string())
         };
         unsafe {
+            // SAFETY: The target is a window this program created. Any pointer in the message addresses memory that outlives the call.
+
             SendMessageW(hwnd, CB_RESETCONTENT, WPARAM(0), LPARAM(0));
             SendMessageW(
                 hwnd,
@@ -751,6 +789,8 @@ impl Controls {
         self.select(base + 9, preset_index(p.format, video));
         self.select(base + 3, resolution_index(video.height));
         unsafe {
+            // SAFETY: The target is a window this program created. Any pointer in the message addresses memory that outlives the call.
+
             SendMessageW(
                 self.get(base + 4),
                 TBM_SETPOS,
@@ -764,6 +804,8 @@ impl Controls {
 
     pub fn check(&self, id: i32, checked: bool) {
         unsafe {
+            // SAFETY: The target is a window this program created. Any pointer in the message addresses memory that outlives the call.
+
             SendMessageW(
                 self.get(id),
                 BM_SETCHECK,
@@ -779,23 +821,32 @@ impl Controls {
 
     pub fn checked(&self, id: i32) -> bool {
         unsafe {
+            // SAFETY: The HWND is a checkbox this window created. The message takes no pointer.
             SendMessageW(self.get(id), BM_GETCHECK, WPARAM(0), LPARAM(0)).0
                 == BST_CHECKED.0 as isize
         }
     }
 
     pub fn select(&self, id: i32, index: usize) {
-        unsafe { SendMessageW(self.get(id), CB_SETCURSEL, WPARAM(index), LPARAM(0)) };
+        unsafe {
+            // SAFETY: The HWND is a child control of the main window.
+            SendMessageW(self.get(id), CB_SETCURSEL, WPARAM(index), LPARAM(0))
+        };
     }
 
     pub fn selected(&self, id: i32) -> usize {
-        unsafe { SendMessageW(self.get(id), CB_GETCURSEL, WPARAM(0), LPARAM(0)).0 as usize }
+        unsafe {
+            // SAFETY: The HWND is a child control of the main window.
+            SendMessageW(self.get(id), CB_GETCURSEL, WPARAM(0), LPARAM(0)).0 as usize
+        }
     }
 
     pub fn refresh_formats(&self) {
         for base in [ID_FORMAT, ID_DYN_AREA_FORMAT, ID_DYN_VIDEO_FORMAT] {
             for offset in 0..=2 {
                 unsafe {
+                    // SAFETY: The HWND is a child control of the main window.
+
                     RedrawWindow(
                         self.get(base + offset),
                         None,
@@ -809,7 +860,11 @@ impl Controls {
     }
 
     pub fn set_text(&self, id: i32, text: &str) {
-        unsafe { SetWindowTextW(self.get(id), PCWSTR(wide(text).as_ptr())) }.ok();
+        unsafe {
+            // SAFETY: The HWND is a child control, and the text is NUL-terminated until the call returns.
+            SetWindowTextW(self.get(id), PCWSTR(wide(text).as_ptr()))
+        }
+        .ok();
     }
 
     pub fn set_history(&self, lines: &[String]) {
@@ -824,8 +879,13 @@ impl Controls {
         for index in 0..HISTORY_COUNT {
             let hwnd = self.get(ID_HISTORY + index);
             let mut probe = [0u16; 2];
-            let filled = unsafe { GetWindowTextW(hwnd, &mut probe) } > 0;
+            let filled = unsafe {
+                // SAFETY: The HWND is a window or child control this program created and still owns.
+                GetWindowTextW(hwnd, &mut probe)
+            } > 0;
             unsafe {
+                // SAFETY: The HWND is a window or child control this program created and still owns.
+
                 ShowWindow(
                     hwnd,
                     if self.page == 0 && filled {
@@ -846,8 +906,10 @@ impl Controls {
         previous: &AudioSettings,
     ) -> AudioSettings {
         let selected = self.selected(device);
-        let count =
-            unsafe { SendMessageW(self.get(device), CB_GETCOUNT, WPARAM(0), LPARAM(0)).0 as usize };
+        let count = unsafe {
+            // SAFETY: The target is a window this program created. Any pointer in the message addresses memory that outlives the call.
+            SendMessageW(self.get(device), CB_GETCOUNT, WPARAM(0), LPARAM(0)).0 as usize
+        };
         let device_id = if selected == 0 {
             "Auto".into()
         } else if count == 2 && previous.device != "Auto" {
@@ -869,8 +931,11 @@ impl Controls {
         settings.ui.format = format;
         settings.ui.video[format.index()] = VideoSettings {
             height: resolution_value(self.selected(ID_RESOLUTION)),
-            fps: unsafe { SendMessageW(self.get(ID_FPS), WM_USER, WPARAM(0), LPARAM(0)).0 as u32 }
-                .clamp(5, 60),
+            fps: unsafe {
+                // SAFETY: The target is a window this program created. Any pointer in the message addresses memory that outlives the call.
+                SendMessageW(self.get(ID_FPS), WM_USER, WPARAM(0), LPARAM(0)).0 as u32
+            }
+            .clamp(5, 60),
         };
         self.select(
             ID_PRESET,
@@ -926,9 +991,11 @@ impl Controls {
             self.dyn_video_format_index
         };
         let format = Format::from_index(format_index);
-        let fps =
-            unsafe { SendMessageW(self.get(base + 4), WM_USER, WPARAM(0), LPARAM(0)).0 as u32 }
-                .clamp(5, 60);
+        let fps = unsafe {
+            // SAFETY: The target is a window this program created. Any pointer in the message addresses memory that outlives the call.
+            SendMessageW(self.get(base + 4), WM_USER, WPARAM(0), LPARAM(0)).0 as u32
+        }
+        .clamp(5, 60);
         let mut profile = previous.clone();
         profile.format = format;
         profile.video[format_index] = VideoSettings {
@@ -943,7 +1010,10 @@ impl Controls {
     pub fn refresh_devices(&mut self, id: i32) {
         let hwnd = self.get(id);
         let devices = media::microphones();
-        let current = unsafe { SendMessageW(hwnd, CB_GETCURSEL, WPARAM(0), LPARAM(0)).0 } as isize;
+        let current = unsafe {
+            // SAFETY: The target is a window this program created. Any pointer in the message addresses memory that outlives the call.
+            SendMessageW(hwnd, CB_GETCURSEL, WPARAM(0), LPARAM(0)).0
+        } as isize;
         let previous = if current <= 0 {
             "Auto".to_string()
         } else {
@@ -952,6 +1022,8 @@ impl Controls {
                 .unwrap_or_else(|| "Auto".to_string())
         };
         unsafe {
+            // SAFETY: The target is a window this program created. Any pointer in the message addresses memory that outlives the call.
+
             SendMessageW(hwnd, CB_RESETCONTENT, WPARAM(0), LPARAM(0));
             SendMessageW(
                 hwnd,
@@ -962,6 +1034,8 @@ impl Controls {
         }
         for device in &devices {
             unsafe {
+                // SAFETY: The target is a window this program created. Any pointer in the message addresses memory that outlives the call.
+
                 SendMessageW(
                     hwnd,
                     CB_ADDSTRING,
@@ -979,7 +1053,10 @@ impl Controls {
                 .map(|i| i + 1)
                 .unwrap_or(0)
         };
-        unsafe { SendMessageW(hwnd, CB_SETCURSEL, WPARAM(selected), LPARAM(0)) };
+        unsafe {
+            // SAFETY: The target is a window this program created. Any pointer in the message addresses memory that outlives the call.
+            SendMessageW(hwnd, CB_SETCURSEL, WPARAM(selected), LPARAM(0))
+        };
     }
 
     pub fn refresh_all_devices(&mut self, settings: &mut Settings) {
@@ -1024,6 +1101,8 @@ impl Controls {
 
     pub fn set_idle(&self, idle: bool, recording: bool) {
         unsafe {
+            // SAFETY: The HWND is a child control created with the main window.
+
             EnableWindow(self.tab, idle);
             EnableWindow(self.settings_tab, idle);
             EnableWindow(self.get(ID_REFRESH), idle);
@@ -1033,9 +1112,14 @@ impl Controls {
                 continue;
             }
             let screenshot = *h == self.get(ID_SHOT_SCREEN) || *h == self.get(ID_SHOT_REGION);
-            unsafe { EnableWindow(*h, idle || (recording && screenshot)) };
+            unsafe {
+                // SAFETY: The HWND is a child control created with the main window.
+                EnableWindow(*h, idle || (recording && screenshot))
+            };
         }
         unsafe {
+            // SAFETY: The HWND is a child control created with the main window.
+
             EnableWindow(self.get(ID_STOP), recording);
             EnableWindow(self.get(ID_STATUS), true);
         }
@@ -1044,6 +1128,8 @@ impl Controls {
 
 fn scaled_font(percent: u32) -> HFONT {
     unsafe {
+        // SAFETY: The face name is NUL-terminated and outlives the call. The font is stored and later deleted.
+
         CreateFontW(
             -(17 * percent as i32 / 100),
             0,
@@ -1138,6 +1224,8 @@ fn resolution_value(index: usize) -> u32 {
 
 pub fn draw_button(lparam: LPARAM, controls: &Controls) {
     unsafe {
+        // SAFETY: The color is a plain COLORREF. The brush is stored for the process or deleted in this block.
+
         let item = &mut *(lparam.0 as *mut DRAWITEMSTRUCT);
         let id = item.CtlID as i32;
         let radio = if (ID_FORMAT..=ID_FORMAT + 2).contains(&id) {

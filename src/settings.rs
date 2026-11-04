@@ -101,6 +101,8 @@ impl Registry {
             w!("Software\\ezcap")
         };
         unsafe {
+            // SAFETY: The key is HKCU and the subkey is NUL-terminated. The returned HKEY is closed by its owner.
+
             RegCreateKeyExW(
                 HKEY_CURRENT_USER,
                 path,
@@ -123,6 +125,8 @@ impl Registry {
         let mut value = default;
         let mut size = 4u32;
         unsafe {
+            // SAFETY: The key is open, the name is NUL-terminated, and the buffer length is the size passed in.
+
             RegQueryValueExW(
                 self.key,
                 PCWSTR(name.as_ptr()),
@@ -139,13 +143,19 @@ impl Registry {
     fn set_dword(&self, name: &str, value: u32) {
         let name = wide(name);
         let bytes = value.to_le_bytes();
-        unsafe { RegSetValueExW(self.key, PCWSTR(name.as_ptr()), 0, REG_DWORD, Some(&bytes)) }.ok();
+        unsafe {
+            // SAFETY: The key is open, the name is NUL-terminated, and the buffer length is the size passed in.
+            RegSetValueExW(self.key, PCWSTR(name.as_ptr()), 0, REG_DWORD, Some(&bytes))
+        }
+        .ok();
     }
 
     fn string(&self, name: &str, default: &str) -> String {
         let name = wide(name);
         let mut size = 0u32;
         if unsafe {
+            // SAFETY: The key is open, the name is NUL-terminated, and the buffer length is the size passed in.
+
             RegQueryValueExW(
                 self.key,
                 PCWSTR(name.as_ptr()),
@@ -162,6 +172,8 @@ impl Registry {
         }
         let mut data = vec![0u16; size as usize / 2];
         if unsafe {
+            // SAFETY: The pointer addresses a live buffer, and the length is exactly that buffer's size.
+
             RegQueryValueExW(
                 self.key,
                 PCWSTR(name.as_ptr()),
@@ -183,15 +195,25 @@ impl Registry {
     fn set_string(&self, name: &str, value: &str) {
         let name = wide(name);
         let data = wide(value);
-        let bytes =
-            unsafe { std::slice::from_raw_parts(data.as_ptr().cast::<u8>(), data.len() * 2) };
-        unsafe { RegSetValueExW(self.key, PCWSTR(name.as_ptr()), 0, REG_SZ, Some(bytes)) }.ok();
+        let bytes = unsafe {
+            // SAFETY: The pointer addresses a live buffer, and the length is exactly that buffer's size.
+            std::slice::from_raw_parts(data.as_ptr().cast::<u8>(), data.len() * 2)
+        };
+        unsafe {
+            // SAFETY: The key is open. The name and bytes outlive the call and match the declared size.
+            RegSetValueExW(self.key, PCWSTR(name.as_ptr()), 0, REG_SZ, Some(bytes))
+        }
+        .ok();
     }
 }
 
 impl Drop for Registry {
     fn drop(&mut self) {
-        unsafe { RegCloseKey(self.key) }.ok();
+        unsafe {
+            // SAFETY: This HKEY was opened above and is closed once.
+            RegCloseKey(self.key)
+        }
+        .ok();
     }
 }
 
@@ -321,6 +343,7 @@ fn update_autostart(enabled: bool, minimized: bool) {
     }
     let mut key = HKEY::default();
     if unsafe {
+        // SAFETY: The key is HKCU and the subkey is NUL-terminated. The returned HKEY is closed before this function returns.
         RegCreateKeyExW(
             HKEY_CURRENT_USER,
             w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run"),
@@ -339,15 +362,32 @@ fn update_autostart(enabled: bool, minimized: bool) {
     }
     if enabled {
         let mut path = vec![0u16; 32768];
-        let len = unsafe { GetModuleFileNameW(None, &mut path) } as usize;
+        let len = unsafe {
+            // SAFETY: The pointer addresses a live buffer, and the length is exactly that buffer's size.
+            GetModuleFileNameW(None, &mut path)
+        } as usize;
         let suffix = if minimized { " --minimized" } else { "" };
         let value = format!("\"{}\"{suffix}", String::from_utf16_lossy(&path[..len]));
         let data = wide(&value);
-        let bytes =
-            unsafe { std::slice::from_raw_parts(data.as_ptr().cast::<u8>(), data.len() * 2) };
-        unsafe { RegSetValueExW(key, w!("ezcap"), 0, REG_SZ, Some(bytes)) }.ok();
+        let bytes = unsafe {
+            // SAFETY: The pointer addresses a live buffer, and the length is exactly that buffer's size.
+            std::slice::from_raw_parts(data.as_ptr().cast::<u8>(), data.len() * 2)
+        };
+        unsafe {
+            // SAFETY: The key is open. The name and bytes outlive the call and match the declared size.
+            RegSetValueExW(key, w!("ezcap"), 0, REG_SZ, Some(bytes))
+        }
+        .ok();
     } else {
-        unsafe { RegDeleteValueW(key, w!("ezcap")) }.ok();
+        unsafe {
+            // SAFETY: The key is open and the value name is a NUL-terminated literal.
+            RegDeleteValueW(key, w!("ezcap"))
+        }
+        .ok();
     }
-    unsafe { RegCloseKey(key) }.ok();
+    unsafe {
+        // SAFETY: This HKEY was opened above and is closed once.
+        RegCloseKey(key)
+    }
+    .ok();
 }

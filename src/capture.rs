@@ -178,6 +178,7 @@ fn wait_frame(slot: &Slot, timeout: Duration) -> Result<Frame, String> {
 }
 
 fn monitor_of(rect: Rect) -> (Monitor, i32, i32, u32, u32) {
+    // SAFETY: any screen point is a valid query. `info.cbSize` is set before the call, and the returned handle is only used as an HMONITOR value.
     unsafe {
         let point = POINT {
             x: rect.x + rect.w as i32 / 2,

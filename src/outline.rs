@@ -55,6 +55,7 @@ impl RegionOutline {
         if self.hwnd.is_invalid() {
             return;
         }
+        // SAFETY: `hwnd` is the outline window this value created. The invalid case returned above.
         unsafe { ShowWindow(self.hwnd, SW_HIDE) };
     }
 
@@ -71,6 +72,7 @@ impl RegionOutline {
                 color,
             });
         }
+        // SAFETY: `hwnd` belongs to this outline. The DC from GetDC is released in the same block.
         unsafe {
             SetWindowPos(
                 hwnd,
@@ -91,6 +93,7 @@ impl RegionOutline {
     }
 
     fn create(&mut self) -> bool {
+        // SAFETY: the class name lives for the process. The created HWND is stored here and destroyed in Drop.
         unsafe {
             let instance = GetModuleHandleW(None).unwrap_or_default();
             let class = WNDCLASSW {
@@ -132,6 +135,7 @@ impl RegionOutline {
 impl Drop for RegionOutline {
     fn drop(&mut self) {
         if !self.hwnd.is_invalid() {
+            // SAFETY: this is the only owner of the outline window, and Drop runs once.
             unsafe { DestroyWindow(self.hwnd) }.ok();
             self.hwnd = HWND::default();
         }
@@ -139,6 +143,7 @@ impl Drop for RegionOutline {
 }
 
 fn dpi_at(x: i32, y: i32) -> u32 {
+    // SAFETY: any point is a valid monitor query. The DPI integers are writable locals.
     unsafe {
         let monitor = MonitorFromPoint(POINT { x, y }, MONITOR_DEFAULTTONEAREST);
         let mut dpi_x = 96u32;
@@ -162,6 +167,7 @@ fn paint(dc: HDC) {
     }) else {
         return;
     };
+    // SAFETY: `dc` is the paint DC of the outline window. Both brushes are deleted before return.
     unsafe {
         let black = CreateSolidBrush(theme::BLACK);
         let border = CreateSolidBrush(draw.color);
@@ -206,6 +212,7 @@ fn paint(dc: HDC) {
     }
 }
 
+// SAFETY: Windows calls this for an outline window of this class. BeginPaint and EndPaint bracket the DC.
 unsafe extern "system" fn wnd_proc(
     hwnd: HWND,
     message: u32,

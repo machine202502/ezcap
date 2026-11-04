@@ -295,6 +295,8 @@ impl Region {
     fn show(&mut self) {
         self.layout();
         unsafe {
+            // SAFETY: The HWND is a window or child control this program created and still owns.
+
             let disabled = 1i32;
             DwmSetWindowAttribute(
                 self.hwnd,
@@ -320,6 +322,8 @@ impl Region {
         self.commit_text();
         self.outcome = Some(outcome);
         unsafe {
+            // SAFETY: The HWND is a window or child control this program created and still owns.
+
             ShowWindow(self.hwnd, SW_HIDE);
             SetWindowDisplayAffinity(self.hwnd, WDA_NONE).ok();
             crate::notify_region_closed();
@@ -500,8 +504,14 @@ impl Region {
             self.layout();
             return;
         }
-        let control = unsafe { GetKeyState(VK_CONTROL.0 as i32) } < 0;
-        let shift = unsafe { GetKeyState(VK_SHIFT.0 as i32) } < 0;
+        let control = unsafe {
+            // SAFETY: The call only reads keyboard state and takes no pointer.
+            GetKeyState(VK_CONTROL.0 as i32)
+        } < 0;
+        let shift = unsafe {
+            // SAFETY: The call only reads keyboard state and takes no pointer.
+            GetKeyState(VK_SHIFT.0 as i32)
+        } < 0;
         if control && shift && key == 'Z' as u32 {
             self.redo_shape();
         } else if control && key == 'Z' as u32 {
@@ -568,6 +578,8 @@ impl Region {
             self.shapes.clear();
             self.redo.clear();
             unsafe {
+                // SAFETY: The HWND is a window this program created. The position is plain integers.
+
                 SetWindowPos(
                     self.hwnd,
                     HWND_TOPMOST,
@@ -646,6 +658,8 @@ impl Region {
     fn begin_text_move(&mut self, point: Point) {
         self.drag = Some(Drag::TextMove(self.edit_pos, point));
         unsafe {
+            // SAFETY: The HWND is the visible overlay owned by this thread.
+
             SetCapture(self.hwnd);
         }
     }
@@ -667,6 +681,8 @@ impl Region {
             WM_LBUTTONDOWN
         };
         unsafe {
+            // SAFETY: The HWND is the editor or main window this program created.
+
             SetFocus(self.edit);
             SendMessageW(self.edit, message, WPARAM(1), LPARAM(packed));
         }
@@ -696,6 +712,8 @@ impl Region {
             .clamp(0, (self.frame.height as i32 - self.edit_h).max(0));
         let origin = self.edit_screen_origin();
         unsafe {
+            // SAFETY: The HWND is a window this program created. The position is plain integers.
+
             SetWindowPos(
                 self.edit,
                 HWND_TOPMOST,
@@ -717,6 +735,8 @@ impl Region {
             y: self.edit_pos.y,
         };
         unsafe {
+            // SAFETY: The POINT is in client coordinates of a window this program created.
+
             ClientToScreen(self.hwnd, &mut origin).ok();
         }
         origin
@@ -736,6 +756,8 @@ impl Region {
         let mut margins = 0i32;
         if !self.edit.is_invalid() {
             unsafe {
+                // SAFETY: The target is a window this program created. Any pointer in the message addresses memory that outlives the call.
+
                 let mut actual = RECT::default();
                 SendMessageW(
                     self.edit,
@@ -810,6 +832,8 @@ impl Region {
                     self.edit_h,
                 ));
                 unsafe {
+                    // SAFETY: The HWND is the visible overlay owned by this thread.
+
                     SetCapture(self.hwnd);
                 }
                 return;
@@ -831,6 +855,8 @@ impl Region {
             self.press(index, point);
             if matches!(self.drag, Some(Drag::Width(_, _))) {
                 unsafe {
+                    // SAFETY: The HWND is the visible overlay owned by this thread.
+
                     SetCapture(self.hwnd);
                 }
             }
@@ -890,6 +916,8 @@ impl Region {
             }
         }
         unsafe {
+            // SAFETY: The HWND is the visible overlay owned by this thread.
+
             SetCapture(self.hwnd);
         }
         self.layout();
@@ -950,6 +978,8 @@ impl Region {
         ) {
             self.drag = None;
             unsafe {
+                // SAFETY: This thread captured the mouse on the overlay window.
+
                 ReleaseCapture().ok();
             }
             self.redraw();
@@ -965,6 +995,8 @@ impl Region {
                 };
             }
             unsafe {
+                // SAFETY: This thread captured the mouse on the overlay window.
+
                 ReleaseCapture().ok();
             }
             self.layout();
@@ -979,6 +1011,8 @@ impl Region {
             self.push_shape(shape);
         }
         unsafe {
+            // SAFETY: This thread captured the mouse on the overlay window.
+
             ReleaseCapture().ok();
         }
         self.layout();
@@ -992,10 +1026,14 @@ impl Region {
         self.editing = true;
         if !self.edit_font.is_invalid() {
             unsafe {
+                // SAFETY: The face name is NUL-terminated and outlives the call. The font is stored and later deleted.
+
                 DeleteObject(self.edit_font);
             }
         }
         self.edit_font = unsafe {
+            // SAFETY: The face name is NUL-terminated and outlives the call. The font is stored and later deleted.
+
             CreateFontW(
                 -self.font_size.max(18),
                 0,
@@ -1018,6 +1056,8 @@ impl Region {
             let style = WS_POPUP
                 | WINDOW_STYLE(ES_MULTILINE as u32 | ES_AUTOVSCROLL as u32 | ES_NOHIDESEL as u32);
             let Ok(edit) = (unsafe {
+                // SAFETY: The class name lives for the process. The new HWND is stored and destroyed with its owner.
+
                 CreateWindowExW(
                     WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
                     w!("EDIT"),
@@ -1038,6 +1078,8 @@ impl Region {
             };
             self.edit = edit;
             unsafe {
+                // SAFETY: The HWND is a control this program created. The theme names are literals.
+
                 windows::Win32::UI::Controls::SetWindowTheme(self.edit, w!(""), w!("")).ok();
                 SetLayeredWindowAttributes(self.edit, theme::CHROMA, 0, LWA_COLORKEY).ok();
                 let previous = SetWindowLongPtrW(
@@ -1050,6 +1092,8 @@ impl Region {
         }
         self.place_edit();
         unsafe {
+            // SAFETY: The HWND is a window or child control this program created and still owns.
+
             SendMessageW(
                 self.edit,
                 WM_SETFONT,
@@ -1070,9 +1114,14 @@ impl Region {
         if !self.editing || self.edit.is_invalid() {
             return;
         }
-        let len = unsafe { GetWindowTextLengthW(self.edit) } as usize;
+        let len = unsafe {
+            // SAFETY: The HWND is a window or child control this program created and still owns.
+            GetWindowTextLengthW(self.edit)
+        } as usize;
         let mut buffer = vec![0u16; len + 1];
         unsafe {
+            // SAFETY: The HWND is a window or child control this program created and still owns.
+
             GetWindowTextW(self.edit, &mut buffer);
             ShowWindow(self.edit, SW_HIDE);
         }
@@ -1096,6 +1145,8 @@ impl Region {
         self.editing = false;
         if !self.edit.is_invalid() {
             unsafe {
+                // SAFETY: The HWND is a window or child control this program created and still owns.
+
                 ShowWindow(self.edit, SW_HIDE);
             }
         }
@@ -1108,6 +1159,8 @@ impl Region {
             return;
         }
         unsafe {
+            // SAFETY: The face name is NUL-terminated and outlives the call. The font is stored and later deleted.
+
             if !self.font.is_invalid() {
                 DeleteObject(self.font);
             }
@@ -1123,6 +1176,8 @@ impl Region {
         }
         let px = |size: i32| -(size * self.scale as i32 / 100).max(13);
         unsafe {
+            // SAFETY: The face name is NUL-terminated and outlives the call. The font is stored and later deleted.
+
             self.font = CreateFontW(
                 px(15),
                 0,
@@ -1329,6 +1384,8 @@ impl Region {
 
     fn redraw(&self) {
         unsafe {
+            // SAFETY: The HWND is a window this program created.
+
             InvalidateRect(self.hwnd, None, false).ok();
         }
     }
@@ -1341,6 +1398,8 @@ impl Region {
             return;
         }
         unsafe {
+            // SAFETY: The GDI object was created by this window and is not selected into a DC.
+
             if !self.back_bmp.is_invalid() {
                 DeleteObject(self.back_bmp);
             }
@@ -1360,6 +1419,7 @@ impl Region {
 impl Drop for Region {
     fn drop(&mut self) {
         unsafe {
+            // SAFETY: These GDI objects were created for this overlay and are no longer selected into a DC.
             if !self.font.is_invalid() {
                 DeleteObject(self.font);
             }
@@ -1383,7 +1443,10 @@ impl Drop for Region {
 }
 
 fn region<'a>() -> &'a mut Region {
-    unsafe { &mut *REGION }
+    unsafe {
+        // SAFETY: The POINT is a writable local, and any cursor position is a valid monitor query.
+        &mut *REGION
+    }
 }
 
 fn same_rect(a: Rect, b: Rect) -> bool {
@@ -1399,6 +1462,8 @@ fn point(lparam: LPARAM) -> Point {
 
 fn cursor_screen() -> (i32, i32) {
     unsafe {
+        // SAFETY: The POINT is a writable local, and any cursor position is a valid monitor query.
+
         let mut cursor = POINT::default();
         GetCursorPos(&mut cursor).ok();
         (cursor.x, cursor.y)
@@ -1477,6 +1542,7 @@ fn edit_selection(start: Selection, handle: Handle, origin: Point, point: Point)
 }
 
 fn monitor_rects() -> Vec<Rect> {
+    // SAFETY: The enumerator calls this once per monitor. The Vec behind data stays alive until EnumDisplayMonitors returns.
     unsafe extern "system" fn collect(
         monitor: HMONITOR,
         _: HDC,
@@ -1487,9 +1553,18 @@ fn monitor_rects() -> Vec<Rect> {
             cbSize: std::mem::size_of::<MONITORINFO>() as u32,
             ..Default::default()
         };
-        if unsafe { GetMonitorInfoW(monitor, &mut info) }.as_bool() {
+        if unsafe {
+            // SAFETY: The callback's Vec stays alive until the enumeration returns.
+            GetMonitorInfoW(monitor, &mut info)
+        }
+        .as_bool()
+        {
             let rect = info.rcMonitor;
-            unsafe { &mut *(data.0 as *mut Vec<Rect>) }.push(Rect {
+            unsafe {
+                // SAFETY: The callback's Vec stays alive until the enumeration returns.
+                &mut *(data.0 as *mut Vec<Rect>)
+            }
+            .push(Rect {
                 x: rect.left,
                 y: rect.top,
                 w: (rect.right - rect.left) as u32,
@@ -1500,6 +1575,8 @@ fn monitor_rects() -> Vec<Rect> {
     }
     let mut result = Vec::new();
     unsafe {
+        // SAFETY: The callback's Vec stays alive until the enumeration returns.
+
         EnumDisplayMonitors(
             None,
             None,
@@ -1526,7 +1603,12 @@ fn save_dialog() -> Option<PathBuf> {
         Flags: OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR,
         ..Default::default()
     };
-    if unsafe { GetSaveFileNameW(&mut dialog) }.as_bool() {
+    if unsafe {
+        // SAFETY: The path buffer and filter outlive the call, and lStructSize matches the struct.
+        GetSaveFileNameW(&mut dialog)
+    }
+    .as_bool()
+    {
         let len = path
             .iter()
             .position(|value| *value == 0)
@@ -1558,6 +1640,8 @@ fn text_commit_box(edit_pos: Point, edit_w: i32, format: RECT, margins: i32) -> 
 
 fn message(text: &str) {
     unsafe {
+        // SAFETY: The caller passes the editor paint DC. The fill uses the process-owned chroma brush.
+
         MessageBoxW(
             region().hwnd,
             PCWSTR(crate::wide(text).as_ptr()),
@@ -1569,12 +1653,13 @@ fn message(text: &str) {
 
 fn chroma_brush() -> HBRUSH {
     static BRUSH: std::sync::OnceLock<isize> = std::sync::OnceLock::new();
-    HBRUSH(
-        *BRUSH.get_or_init(|| unsafe { CreateSolidBrush(theme::CHROMA).0 as isize })
-            as *mut std::ffi::c_void,
-    )
+    HBRUSH(*BRUSH.get_or_init(|| unsafe {
+        // SAFETY: The caller passes the editor paint DC. The fill uses the process-owned chroma brush.
+        CreateSolidBrush(theme::CHROMA).0 as isize
+    }) as *mut std::ffi::c_void)
 }
 
+// SAFETY: The caller passes the editor paint DC. The fill uses the process-owned chroma brush.
 unsafe fn erase_edit_background(dc: HDC) -> LRESULT {
     let region = region();
     let rect = RECT {
@@ -1626,6 +1711,8 @@ fn move_edit(current: Point) {
 
 fn draw_edit_chrome(dc: HDC, width: i32, height: i32) {
     unsafe {
+        // SAFETY: The color is a plain COLORREF. The brush is stored for the process or deleted in this block.
+
         let pen = CreatePen(PS_SOLID, 3, theme::ACCENT);
         let old_pen = SelectObject(dc, pen);
         let old_brush = SelectObject(dc, GetStockObject(NULL_BRUSH));
@@ -1654,6 +1741,7 @@ fn draw_edit_chrome(dc: HDC, width: i32, height: i32) {
     }
 }
 
+// SAFETY: Windows calls this for the text editor this program created. The saved procedure is called only while it is still installed.
 unsafe extern "system" fn edit_proc(
     hwnd: HWND,
     message: u32,
@@ -1785,6 +1873,7 @@ unsafe extern "system" fn edit_proc(
     }
 }
 
+// SAFETY: Windows calls this with a window of this class. Paint uses the DC from BeginPaint, and every other message is forwarded to DefWindowProc.
 unsafe extern "system" fn wnd_proc(
     hwnd: HWND,
     message: u32,
@@ -1851,6 +1940,7 @@ fn paint(hwnd: HWND) {
     let region = region();
     let mut ps = PAINTSTRUCT::default();
     unsafe {
+        // SAFETY: Windows is painting this window. EndPaint receives the same paint struct, and brushes created here are deleted.
         let dc = BeginPaint(hwnd, &mut ps);
         region.ensure_back(dc);
         let memory = region.back_dc;
@@ -1917,6 +2007,8 @@ fn paint(hwnd: HWND) {
 fn draw_text_frame(dc: HDC, region: &Region) {
     let frame = region.text_outer();
     unsafe {
+        // SAFETY: The color is a plain COLORREF. The brush is stored for the process or deleted in this block.
+
         let pen = CreatePen(PS_SOLID, 2, theme::ACCENT);
         let old_pen = SelectObject(dc, pen);
         let old_brush = SelectObject(dc, GetStockObject(NULL_BRUSH));
@@ -1947,6 +2039,8 @@ fn draw_text_frame(dc: HDC, region: &Region) {
 
 fn blit_frame(dc: HDC, frame: &Frame) {
     unsafe {
+        // SAFETY: Every field the API reads, including the size, is written before the struct is used.
+
         let mut info: BITMAPINFO = std::mem::zeroed();
         info.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
         info.bmiHeader.biWidth = frame.width as i32;
@@ -1992,6 +2086,7 @@ fn draw_dim(dc: HDC, region: &Region) {
         ),
     ];
     unsafe {
+        // SAFETY: dc is the overlay paint DC. The temporary DC and bitmap are deleted before return.
         let dim = CreateCompatibleDC(dc);
         let bitmap = CreateCompatibleBitmap(dc, 1, 1);
         let old = SelectObject(dim, bitmap);
@@ -2041,6 +2136,8 @@ fn draw_badge(dc: HDC, region: &Region, selection: Selection) {
     let text = format!("{} × {}", selection.w, selection.h);
     let wide = crate::wide(&text);
     unsafe {
+        // SAFETY: The DC belongs to a window this program is painting, and created GDI objects are deleted before return.
+
         let old = SelectObject(dc, region.font);
         let mut size = SIZE::default();
         GetTextExtentPoint32W(dc, &wide, &mut size).ok();
@@ -2095,6 +2192,8 @@ fn draw_badge(dc: HDC, region: &Region, selection: Selection) {
 fn draw_hint(dc: HDC, region: &Region) {
     let mut text = crate::wide("Drag to select an area    ·    Double click: full screen    ·    Tab: next display    ·    Esc: cancel");
     unsafe {
+        // SAFETY: The DC belongs to a window this program is painting, and created GDI objects are deleted before return.
+
         let old = SelectObject(dc, region.font);
         SetBkMode(dc, TRANSPARENT);
         let mut rect = RECT {
@@ -2126,6 +2225,7 @@ fn draw_hint(dc: HDC, region: &Region) {
 
 fn measure(dc: HDC, font: HFONT, text: &str) -> i32 {
     unsafe {
+        // SAFETY: dc is the overlay paint DC passed in, and the previous font is restored before return.
         let old = SelectObject(dc, font);
         let wide = crate::wide(text);
         let mut size = SIZE::default();
@@ -2145,6 +2245,8 @@ fn action_metrics(region: &Region, role: Role) -> (i32, i32, i32, i32) {
         return (pad, 0, 0, 0);
     };
     unsafe {
+        // SAFETY: This DC was obtained with GetDC in the same call and is released once.
+
         let dc = GetDC(None);
         let icon_w =
             measure(dc, region.icon_font, glyph).max((16 * region.scale as i32 / 100).max(14));
@@ -2220,6 +2322,8 @@ fn draw_button(dc: HDC, region: &Region, button: &Button) {
         theme::OVERLAY_INK
     };
     unsafe {
+        // SAFETY: The color is a plain COLORREF. The brush is stored for the process or deleted in this block.
+
         let brush = CreateSolidBrush(fill);
         let pen = CreatePen(
             PS_SOLID,
@@ -2332,6 +2436,8 @@ fn draw_button(dc: HDC, region: &Region, button: &Button) {
 
 fn draw_annotations(frame: &mut Frame, shapes: &[Shape], offset: Point) {
     unsafe {
+        // SAFETY: Every field the API reads, including the size, is written before the struct is used.
+
         let screen = GetDC(None);
         let dc = CreateCompatibleDC(screen);
         let mut info: BITMAPINFO = std::mem::zeroed();
@@ -2363,6 +2469,8 @@ fn draw_annotations(frame: &mut Frame, shapes: &[Shape], offset: Point) {
 
 fn draw_shape(dc: HDC, shape: &Shape, offset: Point) {
     unsafe {
+        // SAFETY: The color is a plain COLORREF. The brush is stored for the process or deleted in this block.
+
         let color = if matches!(shape.kind, ShapeKind::Marker(_)) {
             theme::MARKER
         } else {
@@ -2472,6 +2580,8 @@ fn draw_shape(dc: HDC, shape: &Shape, offset: Point) {
 
 pub fn register(instance: HINSTANCE) {
     unsafe {
+        // SAFETY: The class name lives for the process. The new HWND is stored and destroyed with its owner.
+
         let class = WNDCLASSW {
             style: CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS,
             lpfnWndProc: Some(wnd_proc),
@@ -2486,6 +2596,8 @@ pub fn register(instance: HINSTANCE) {
 
 pub fn open(profile: Profile, dynamic: bool, allow_record: bool) -> Result<(), String> {
     unsafe {
+        // SAFETY: The class name lives for the process. The new HWND is stored and destroyed with its owner.
+
         if !REGION.is_null() {
             return Err("Area selection is already active".into());
         }
@@ -2514,6 +2626,8 @@ pub fn open(profile: Profile, dynamic: bool, allow_record: bool) -> Result<(), S
 #[cfg(test)]
 pub fn open_with_frame(frame: Frame, profile: Profile, scale: u32) -> Result<(), String> {
     unsafe {
+        // SAFETY: The class name lives for the process. The new HWND is stored and destroyed with its owner.
+
         if !REGION.is_null() {
             shutdown();
         }
@@ -2580,6 +2694,8 @@ pub fn selection_screen_rect() -> RECT {
         y: selection.y,
     };
     unsafe {
+        // SAFETY: The POINT is in client coordinates of a window this program created.
+
         ClientToScreen(region.hwnd, &mut origin).ok();
     }
     RECT {
@@ -2639,6 +2755,8 @@ pub fn chrome_screen_rect(role: Role) -> Option<RECT> {
         y: button.y,
     };
     unsafe {
+        // SAFETY: The POINT is in client coordinates of a window this program created.
+
         ClientToScreen(region.hwnd, &mut point).ok();
     }
     Some(RECT {
@@ -2655,6 +2773,7 @@ pub fn select_tool(role: Role) {
 }
 
 pub fn active() -> bool {
+    // SAFETY: This only reads the pointer. The region is used only when it is non-null.
     unsafe { !REGION.is_null() }
 }
 
@@ -2702,6 +2821,8 @@ pub fn take_outcome() -> Option<Outcome> {
 
 pub fn cancel() {
     unsafe {
+        // SAFETY: Windows calls this only for the short-lived probe edit. Every message is forwarded to DefWindowProc.
+
         if !REGION.is_null() {
             region().finish(Outcome::Cancel);
         }
@@ -2710,6 +2831,8 @@ pub fn cancel() {
 
 pub fn shutdown() {
     unsafe {
+        // SAFETY: Windows calls this only for the short-lived probe edit. Every message is forwarded to DefWindowProc.
+
         if !REGION.is_null() {
             let region = Box::from_raw(REGION);
             if !region.edit.is_invalid() {
@@ -2725,6 +2848,7 @@ pub fn shutdown() {
 mod tests {
     use super::*;
 
+    // SAFETY: Windows calls this only for the short-lived probe edit. Every message is forwarded to DefWindowProc.
     unsafe extern "system" fn probe_proc(
         hwnd: HWND,
         message: u32,
@@ -2737,6 +2861,8 @@ mod tests {
     #[test]
     fn edit_text_inset_is_stable() {
         unsafe {
+            // SAFETY: The class name lives for the process. The new HWND is stored and destroyed with its owner.
+
             let instance = GetModuleHandleW(None).unwrap();
             let class = w!("ezcap.edit.probe");
             let window = WNDCLASSW {
