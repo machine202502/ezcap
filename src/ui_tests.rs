@@ -486,13 +486,20 @@ fn region_snapshots_on_a_fake_monitor() {
     register_test_classes();
     for scale in [100] {
         region::open_with_frame(synthetic_frame(), scale).unwrap();
+        region::set_overlay(region::Overlay::Tray);
+        region::hide_selection();
         std::thread::sleep(std::time::Duration::from_millis(40));
+        if scale == 100 {
+            snapshot("region-open-100", &capture_window(region::test_hwnd()));
+        }
+        region::restore_sample_selection();
         let before_selection = region::selection_screen_rect();
         let selection = before_selection;
         for role in [
             region::Role::Copy,
             region::Role::Save,
             region::Role::Record,
+            region::Role::Video,
             region::Role::Cancel,
         ] {
             let button =

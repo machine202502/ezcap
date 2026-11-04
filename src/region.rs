@@ -2729,6 +2729,29 @@ pub fn test_hwnd() -> HWND {
 }
 
 #[cfg(test)]
+pub fn set_overlay(overlay: Overlay) {
+    region().overlay = overlay;
+    region().show();
+}
+
+#[cfg(test)]
+pub fn hide_selection() {
+    region().selection = None;
+    region().show();
+}
+
+#[cfg(test)]
+pub fn restore_sample_selection() {
+    region().selection = Some(Selection {
+        x: 96,
+        y: 72,
+        w: 360,
+        h: 260,
+    });
+    region().show();
+}
+
+#[cfg(test)]
 pub fn text_edit() -> HWND {
     region().edit
 }
