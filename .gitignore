@@ -1,4 +1,5 @@
 /target/
+/dist/
 /vcpkg_installed/
 /.tools/
 *.pdb

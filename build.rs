@@ -8,6 +8,10 @@ fn main() {
     let mut resource = winres::WindowsResource::new();
     resource.set_icon("assets/ezcap.ico");
     resource.set_manifest_file("assets/app.manifest");
+    resource.set("ProductName", "ezcap");
+    resource.set("FileDescription", "Screen, region and audio capture");
+    resource.set("Comments", "https://github.com/machine202502/ezcap");
+    resource.set("OriginalFilename", "ezcap.exe");
     resource.compile().unwrap();
     let Some(dir) = std::env::var_os("FFMPEG_DIR").map(PathBuf::from) else {
         return;

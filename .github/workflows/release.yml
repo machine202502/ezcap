@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - Cargo.toml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.gate.outputs.version }}
+      publish: ${{ steps.gate.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version=$(awk -F'"' '/^version[[:space:]]*=/{print $2; exit}' Cargo.toml)
+          if git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            previous=$(git show HEAD^:Cargo.toml | awk -F'"' '/^version[[:space:]]*=/{print $2; exit}')
+          else
+            previous=""
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "$version" = "$previous" ]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "Cargo.toml version is still $version"
+            exit 0
+          fi
+          if gh release view "v$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "v$version is already published"
+            exit 0
+          fi
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+          echo "Will publish v$version"
+
+  release:
+    needs: version
+    if: needs.version.outputs.publish == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 360
+    env:
+      FFMPEG_DIR: ${{ github.workspace }}\vcpkg_installed\x64-windows-static
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore FFmpeg
+        id: ffmpeg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: vcpkg_installed
+          key: ffmpeg-x64-windows-static-${{ hashFiles('vcpkg.json') }}
+
+      - name: Build FFmpeg
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git C:\vcpkg
+          & C:\vcpkg\bootstrap-vcpkg.bat -disableMetrics
+          $env:VCPKG_ROOT = "C:\vcpkg"
+          & C:\vcpkg\vcpkg.exe install --triplet x64-windows-static
+
+      - name: Save FFmpeg
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: vcpkg_installed
+          key: ffmpeg-x64-windows-static-${{ hashFiles('vcpkg.json') }}
+
+      - name: Install Inno Setup
+        run: choco install innosetup --yes --no-progress
+
+      - name: Package and publish
+        shell: pwsh
+        run: ./scripts/publish.ps1 -Tag "v${{ needs.version.outputs.version }}"
