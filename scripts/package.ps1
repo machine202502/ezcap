@@ -4,6 +4,51 @@ param(
     [string]$Version
 )
 
+function New-ThirdPartyNotice {
+    param(
+        [string]$Version,
+        [string]$FfmpegDir
+    )
+    $statusPath = Join-Path (Split-Path $FfmpegDir -Parent) "vcpkg\status"
+    $status = ""
+    if (Test-Path $statusPath) {
+        $status = Get-Content -Raw -Path $statusPath
+    }
+    $ports = @(foreach ($name in @("ffmpeg", "x264", "libwebp", "mp3lame", "zlib")) {
+        $found = $null
+        foreach ($block in ($status -split "(?m)(?=^Package:)")) {
+            if ($block -match "(?m)^Package:\s+$([regex]::Escape($name))(?::\S+)?\s*$" -and
+                $block -match "(?m)^Version:\s+(.+)\s*$") {
+                $found = $Matches[1].Trim()
+                break
+            }
+        }
+        if ($found) { "- ${name} ${found}" } else { "- ${name} (version not recorded)" }
+    })
+    $commit = "not recorded"
+    foreach ($root in @($env:VCPKG_ROOT, "C:\vcpkg")) {
+        if ($root -and (Test-Path (Join-Path $root ".git"))) {
+            $commit = (& git -C $root rev-parse HEAD).Trim()
+            break
+        }
+    }
+    @"
+ezcap $Version
+
+This executable includes:
+$($ports -join "`n")
+
+FFmpeg: https://ffmpeg.org/legal.html
+x264: https://www.videolan.org/developers/x264.html
+Both are used under the GNU General Public License, version 2 or later. See COPYING.
+
+ezcap source for this version:
+https://github.com/machine202502/ezcap/tree/v$Version
+
+vcpkg commit: $commit
+"@
+}
+
 $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $Root
@@ -34,6 +79,9 @@ if (-not (Test-Path $exe)) {
 $dist = Join-Path $Root "dist"
 New-Item -ItemType Directory -Force -Path $dist | Out-Null
 
+$thirdParty = Join-Path $dist "THIRD-PARTY.txt"
+Set-Content -Path $thirdParty -Encoding utf8 -Value (New-ThirdPartyNotice -Version $Version -FfmpegDir $env:FFMPEG_DIR)
+
 $portable = Join-Path $dist "ezcap-$Version-windows-x64.zip"
 if (Test-Path $portable) {
     Remove-Item $portable
@@ -44,7 +92,10 @@ if (Test-Path $stage) {
 }
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
 Copy-Item $exe (Join-Path $stage "ezcap.exe")
-Compress-Archive -Path (Join-Path $stage "ezcap.exe") -DestinationPath $portable
+Copy-Item (Join-Path $Root "COPYING") (Join-Path $stage "COPYING")
+Copy-Item (Join-Path $Root "NOTICE") (Join-Path $stage "NOTICE")
+Copy-Item $thirdParty (Join-Path $stage "THIRD-PARTY.txt")
+Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $portable
 Remove-Item $stage -Recurse -Force
 Write-Host "Portable: $portable"
 
@@ -58,7 +109,7 @@ if (-not $iscc) {
 }
 
 $iss = Join-Path $Root "installer\ezcap.iss"
-& $iscc "/DAppVersion=$Version" "/DSourceExe=$exe" $iss
+& $iscc "/DAppVersion=$Version" "/DSourceExe=$exe" "/DThirdParty=$thirdParty" $iss
 if ($LASTEXITCODE -ne 0) {
     throw "ISCC failed"
 }

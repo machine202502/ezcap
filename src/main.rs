@@ -71,7 +71,7 @@ fn show_about(owner: HWND) {
     let title = wide("ezcap");
     let instruction = wide("ezcap");
     let content = wide(&format!(
-        "Version {}\n\nScreen, region and audio capture.\n\n<a href=\"{REPOSITORY}\">GitHub</a>",
+        "Version {}\n\nScreen, region and audio capture.\n\nIncludes FFmpeg and x264 under the <a href=\"https://www.gnu.org/licenses/old-licenses/gpl-2.0.html\">GNU GPL v2 or later</a>.\n<a href=\"https://ffmpeg.org/legal.html\">FFmpeg</a>\n<a href=\"https://www.videolan.org/developers/x264.html\">x264</a>\n\n<a href=\"{REPOSITORY}\">ezcap source</a>",
         env!("CARGO_PKG_VERSION")
     ));
     let mut config = TASKDIALOGCONFIG {

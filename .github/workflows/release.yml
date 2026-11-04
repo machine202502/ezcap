@@ -52,6 +52,7 @@ jobs:
     timeout-minutes: 360
     env:
       FFMPEG_DIR: ${{ github.workspace }}\vcpkg_installed\x64-windows-static
+      VCPKG_ROOT: C:\vcpkg
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4

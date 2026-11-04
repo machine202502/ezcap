@@ -1,0 +1,6 @@
+ezcap includes FFmpeg and x264.
+
+FFmpeg (https://ffmpeg.org) and x264 (https://www.videolan.org/developers/x264.html) are licensed under the GNU General Public License, version 2 or later. The text is in COPYING. Their license page is https://ffmpeg.org/legal.html.
+
+Source code for ezcap: https://github.com/machine202502/ezcap
+The FFmpeg and x264 versions built into a given executable are listed in THIRD-PARTY.txt next to that executable.

@@ -10,7 +10,10 @@ fn main() {
     resource.set_manifest_file("assets/app.manifest");
     resource.set("ProductName", "ezcap");
     resource.set("FileDescription", "Screen, region and audio capture");
-    resource.set("Comments", "https://github.com/machine202502/ezcap");
+    resource.set(
+        "Comments",
+        "https://github.com/machine202502/ezcap — includes FFmpeg and x264 under the GNU GPL v2 or later (https://ffmpeg.org/legal.html).",
+    );
     resource.set("OriginalFilename", "ezcap.exe");
     resource.compile().unwrap();
     let Some(dir) = std::env::var_os("FFMPEG_DIR").map(PathBuf::from) else {
