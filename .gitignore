@@ -1,0 +1,7 @@
+/target/
+/vcpkg_installed/
+/.tools/
+*.pdb
+*.user
+*.suo
+tests/snapshots/*.actual.png

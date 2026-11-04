@@ -1,0 +1,12 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg-json.schema.json",
+  "name": "ezcap",
+  "version": "0.1.0",
+  "dependencies": [
+    {
+      "name": "ffmpeg",
+      "default-features": false,
+      "features": ["avcodec", "avformat", "avfilter", "swscale", "swresample", "zlib", "gpl", "x264", "webp", "mp3lame"]
+    }
+  ]
+}
