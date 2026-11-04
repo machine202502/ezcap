@@ -586,6 +586,58 @@ fn tray_badge_stays_red_while_recording_and_orange_while_saving() {
 }
 
 #[test]
+fn the_tray_tip_names_area_video_and_audio() {
+    assert_eq!(
+        recording_kind_for(false, false, Format::Mkv),
+        RecordingKind::Video
+    );
+    assert_eq!(
+        recording_kind_for(false, false, Format::Gif),
+        RecordingKind::Animation
+    );
+    assert_eq!(
+        recording_kind_for(false, false, Format::Webp),
+        RecordingKind::Animation
+    );
+    assert_eq!(
+        recording_kind_for(false, true, Format::Mkv),
+        RecordingKind::AreaVideo
+    );
+    assert_eq!(
+        recording_kind_for(false, true, Format::Gif),
+        RecordingKind::AreaAnimation
+    );
+    assert_eq!(
+        recording_kind_for(false, true, Format::Webp),
+        RecordingKind::AreaAnimation
+    );
+    assert_eq!(
+        recording_kind_for(true, false, Format::Gif),
+        RecordingKind::Audio
+    );
+    assert_eq!(
+        recording_tip(RecordingKind::AreaVideo, 75),
+        "ezcap — recording area video 01:15"
+    );
+    assert_eq!(
+        recording_tip(RecordingKind::AreaAnimation, 75),
+        "ezcap — recording area animation 01:15"
+    );
+    assert_eq!(
+        recording_tip(RecordingKind::Video, 5),
+        "ezcap — recording video 00:05"
+    );
+    assert_eq!(
+        recording_tip(RecordingKind::Animation, 5),
+        "ezcap — recording animation 00:05"
+    );
+    assert_eq!(
+        recording_tip(RecordingKind::Audio, 0),
+        "ezcap — recording audio 00:00"
+    );
+}
+
+#[test]
 fn the_red_outline_is_only_for_a_region_recording() {
     assert!(show_recording_outline(true, true));
     assert!(!show_recording_outline(true, false));

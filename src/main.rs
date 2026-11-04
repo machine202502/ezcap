@@ -239,6 +239,45 @@ fn show_recording_outline(highlight: bool, region: bool) -> bool {
     highlight && region
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum RecordingKind {
+    AreaVideo,
+    AreaAnimation,
+    Video,
+    Animation,
+    Audio,
+}
+
+fn recording_kind_for(audio_only: bool, region: bool, format: Format) -> RecordingKind {
+    let animation = format != Format::Mkv;
+    if audio_only {
+        RecordingKind::Audio
+    } else if region && animation {
+        RecordingKind::AreaAnimation
+    } else if region {
+        RecordingKind::AreaVideo
+    } else if animation {
+        RecordingKind::Animation
+    } else {
+        RecordingKind::Video
+    }
+}
+
+fn recording_tip(kind: RecordingKind, seconds: u64) -> String {
+    let name = match kind {
+        RecordingKind::AreaVideo => "area video",
+        RecordingKind::AreaAnimation => "area animation",
+        RecordingKind::Video => "video",
+        RecordingKind::Animation => "animation",
+        RecordingKind::Audio => "audio",
+    };
+    format!(
+        "ezcap — recording {name} {:02}:{:02}",
+        seconds / 60,
+        seconds % 60
+    )
+}
+
 fn tray_window_label(shown: bool) -> &'static str {
     if shown {
         "Close window"
@@ -354,6 +393,7 @@ struct App {
     outline: outline::RegionOutline,
     record_rect: Option<Rect>,
     region_outline: bool,
+    recording_kind: RecordingKind,
     saved_path: Option<PathBuf>,
     history: Vec<(PathBuf, String)>,
     menu_icons: Vec<HBITMAP>,
@@ -389,6 +429,7 @@ impl App {
             outline: outline::RegionOutline::new(),
             record_rect: None,
             region_outline: false,
+            recording_kind: RecordingKind::Video,
             saved_path: None,
             history: Vec::new(),
             menu_icons: Vec::new(),
@@ -755,6 +796,19 @@ impl App {
                 self.mode = Mode::Idle;
                 self.start_capture(profile, Some(rect), false, self.hide_region, true);
             }
+            Some(region::Outcome::Screen) => {
+                if resume {
+                    return;
+                }
+                self.mode = Mode::Idle;
+                self.start_capture(
+                    self.settings.ui.profile(),
+                    None,
+                    false,
+                    self.hide_region,
+                    false,
+                );
+            }
             Some(region::Outcome::Saved(path)) => {
                 if !resume {
                     self.mode = Mode::Idle;
@@ -810,6 +864,7 @@ impl App {
         let resilient = self.pending_resilient || window;
         self.pending_window = false;
         self.pending_resilient = false;
+        let recorded_format = profile.format;
         let options = media::RecordOptions {
             profile,
             rect: self.record_rect,
@@ -825,6 +880,7 @@ impl App {
                 self.session = Some(session);
                 self.started = Some(Instant::now());
                 self.last_second = u64::MAX;
+                self.recording_kind = recording_kind_for(audio_only, region, recorded_format);
                 self.mode = Mode::Recording;
                 self.update_state();
                 self.sync_outline();
@@ -902,11 +958,7 @@ impl App {
                         ID_STOP,
                         &format!("Stop capture  {:02}:{:02}", elapsed / 60, elapsed % 60),
                     );
-                    self.set_tray_status(&format!(
-                        "ezcap — recording {:02}:{:02}",
-                        elapsed / 60,
-                        elapsed % 60
-                    ));
+                    self.set_tray_status(&recording_tip(self.recording_kind, elapsed));
                 }
                 self.sync_outline();
                 let failed = self
@@ -1185,11 +1237,16 @@ impl App {
                 )
             };
         }
-        self.set_tray_status(match self.mode {
-            Mode::Recording => "ezcap — recording",
-            Mode::Saving => "ezcap — saving",
-            _ => "ezcap",
-        });
+        let elapsed = self
+            .started
+            .map(|start| start.elapsed().as_secs())
+            .unwrap_or(0);
+        let tip = match self.mode {
+            Mode::Recording => recording_tip(self.recording_kind, elapsed),
+            Mode::Saving => "ezcap — saving".into(),
+            _ => "ezcap".into(),
+        };
+        self.set_tray_status(&tip);
     }
 }
 

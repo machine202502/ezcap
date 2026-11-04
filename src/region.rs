@@ -32,6 +32,7 @@ pub enum Role {
     Copy,
     Save,
     Record,
+    Video,
     Cancel,
     Swatch,
 }
@@ -170,6 +171,7 @@ struct Button {
 pub enum Outcome {
     Cancel,
     Record(Rect, Profile),
+    Screen,
     Saved(PathBuf),
 }
 
@@ -402,7 +404,7 @@ impl Region {
         match role {
             Role::Undo | Role::Delete => !self.shapes.is_empty(),
             Role::Redo => !self.redo.is_empty(),
-            Role::Record => self.allow_record,
+            Role::Record | Role::Video => self.allow_record,
             _ => true,
         }
     }
@@ -470,6 +472,7 @@ impl Region {
                     ));
                 }
             }
+            Role::Video => self.finish(Outcome::Screen),
             Role::Cancel => self.finish(Outcome::Cancel),
         }
         self.layout();
@@ -1240,37 +1243,25 @@ impl Region {
             return;
         };
         let shown = shown_cancel;
-        let mut roles = vec![
-            Role::Select,
-            Role::Pen,
-            Role::Line,
-            Role::Arrow,
-            Role::Rectangle,
-            Role::Marker,
-            Role::Text,
-            Role::Color,
-            Role::Width,
-            Role::Undo,
-            Role::Redo,
-            Role::Delete,
-            Role::Copy,
-            Role::Save,
-            Role::Record,
-            Role::Cancel,
-        ];
-        if !self.dynamic {
-            roles.retain(|role| matches!(role, Role::Record | Role::Cancel));
-        }
-        let tools: Vec<Role> = roles
-            .iter()
-            .copied()
-            .filter(|role| !matches!(role, Role::Copy | Role::Save | Role::Record | Role::Cancel))
-            .collect();
-        let actions: Vec<Role> = roles
-            .iter()
-            .copied()
-            .filter(|role| matches!(role, Role::Copy | Role::Save | Role::Record | Role::Cancel))
-            .collect();
+        let tools = if self.dynamic {
+            vec![
+                Role::Select,
+                Role::Pen,
+                Role::Line,
+                Role::Arrow,
+                Role::Rectangle,
+                Role::Marker,
+                Role::Text,
+                Role::Color,
+                Role::Width,
+                Role::Undo,
+                Role::Redo,
+                Role::Delete,
+            ]
+        } else {
+            Vec::new()
+        };
+        let actions = action_roles(self.dynamic);
         let gap = scale(2);
         let side = scale(34);
         let action_gap = scale(6);
@@ -1588,8 +1579,17 @@ fn monitor_rects() -> Vec<Rect> {
     result
 }
 
+fn suggested_image_path() -> String {
+    media::output_path("Image", "png")
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|_| "Image.png".into())
+}
+
 fn save_dialog() -> Option<PathBuf> {
     let mut path = vec![0u16; 32768];
+    let suggested = crate::wide(&suggested_image_path());
+    let count = suggested.len().min(path.len());
+    path[..count].copy_from_slice(&suggested[..count]);
     let filter = "PNG image\0*.png\0WebP image\0*.webp\0\0"
         .encode_utf16()
         .collect::<Vec<_>>();
@@ -2277,6 +2277,7 @@ fn icon(role: Role) -> Option<&'static str> {
         Role::Copy => "\u{E1CA}",
         Role::Save => "\u{E248}",
         Role::Record => "\u{E69A}",
+        Role::Video => "\u{E6A0}",
         Role::Cancel => "\u{E4F6}",
         _ => return None,
     })
@@ -2287,6 +2288,7 @@ fn caption(role: Role) -> Option<&'static str> {
         Role::Copy => Some("Copy"),
         Role::Save => Some("Save…"),
         Role::Record => Some("Record"),
+        Role::Video => Some("Video"),
         Role::Cancel => Some("Cancel"),
         _ => None,
     }
@@ -2811,6 +2813,20 @@ pub fn has_outcome() -> bool {
     region().outcome.is_some()
 }
 
+fn action_roles(dynamic: bool) -> Vec<Role> {
+    if dynamic {
+        vec![
+            Role::Copy,
+            Role::Save,
+            Role::Record,
+            Role::Video,
+            Role::Cancel,
+        ]
+    } else {
+        vec![Role::Record, Role::Video, Role::Cancel]
+    }
+}
+
 pub fn take_outcome() -> Option<Outcome> {
     let outcome = region().outcome.take();
     if outcome.is_some() {
@@ -3032,5 +3048,35 @@ mod tests {
             pixel[3], 255,
             "the stroke was stored with zero alpha and would punch a hole: {pixel:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod region_actions {
+    use super::{action_roles, suggested_image_path, Role};
+
+    #[test]
+    fn video_sits_beside_record_for_a_selected_area() {
+        assert_eq!(
+            action_roles(false),
+            vec![Role::Record, Role::Video, Role::Cancel]
+        );
+        let actions = action_roles(true);
+        let record = actions
+            .iter()
+            .position(|role| *role == Role::Record)
+            .unwrap();
+        assert_eq!(actions[record + 1], Role::Video);
+    }
+
+    #[test]
+    fn the_save_dialog_starts_with_a_generated_name() {
+        let path = suggested_image_path();
+        let name = std::path::Path::new(&path)
+            .file_name()
+            .unwrap()
+            .to_string_lossy();
+        assert!(name.starts_with("Image_"), "{name}");
+        assert!(name.ends_with(".png"), "{name}");
     }
 }
