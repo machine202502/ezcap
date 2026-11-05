@@ -64,7 +64,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: vcpkg_installed
-          key: ffmpeg-8.1-c87dcfa7-release-only-${{ hashFiles('vcpkg.json', 'triplets/x64-windows-static-release.cmake') }}
+          key: ffmpeg-8.1-c87dcfa7-ezcap-slim-${{ hashFiles('vcpkg.json', 'vcpkg-overlays/ffmpeg/portfile.cmake', 'vcpkg-overlays/ffmpeg/vcpkg.json', 'triplets/x64-windows-static-release.cmake') }}
 
       - name: Build FFmpeg
         if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
@@ -79,14 +79,17 @@ jobs:
           git -C C:\vcpkg checkout FETCH_HEAD
           & C:\vcpkg\bootstrap-vcpkg.bat -disableMetrics
           $env:VCPKG_ROOT = "C:\vcpkg"
-          & C:\vcpkg\vcpkg.exe install --triplet x64-windows-static-release --overlay-triplets "${{ github.workspace }}\triplets"
+          & C:\vcpkg\vcpkg.exe install `
+            --triplet x64-windows-static-release `
+            --overlay-ports "${{ github.workspace }}\vcpkg-overlays" `
+            --overlay-triplets "${{ github.workspace }}\triplets"
 
       - name: Save FFmpeg
         if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: vcpkg_installed
-          key: ffmpeg-8.1-c87dcfa7-release-only-${{ hashFiles('vcpkg.json', 'triplets/x64-windows-static-release.cmake') }}
+          key: ffmpeg-8.1-c87dcfa7-ezcap-slim-${{ hashFiles('vcpkg.json', 'vcpkg-overlays/ffmpeg/portfile.cmake', 'vcpkg-overlays/ffmpeg/vcpkg.json', 'triplets/x64-windows-static-release.cmake') }}
 
       - name: Test
         shell: pwsh

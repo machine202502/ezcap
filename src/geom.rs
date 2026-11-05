@@ -611,6 +611,18 @@ pub fn sample_index(elapsed_ns: u128, rate: u64) -> u64 {
     (elapsed_ns.saturating_mul(rate as u128) / 1_000_000_000) as u64
 }
 
+/// 48 kHz samples that belong strictly before video frame `slot`.
+///
+/// Those samples have to be muxed before the frame. A frame written first, with
+/// the audio from the same interval muxed afterwards, makes the container reject
+/// the rest of the recording.
+pub fn audio_samples_before_frame(slot: i64, fps: u64) -> u64 {
+    if fps == 0 || slot <= 0 {
+        return 0;
+    }
+    (slot as u64).saturating_mul(48_000) / fps
+}
+
 /// Interleaved stereo placed on a sample timeline.
 ///
 /// `origin` is the timeline index of `samples[0]`. A microphone that starts later
@@ -931,6 +943,17 @@ mod tests {
         assert_eq!(frame_slot(500_000_000, 30), 15);
         assert_eq!(sample_index(1_000_000_000, 48_000), 48_000);
         assert_eq!(sample_index(500_000_000, 48_000), 24_000);
+    }
+
+    #[test]
+    fn audio_for_a_frame_ends_when_that_frame_starts() {
+        let stalled = 3_000_000_000u128;
+        let slot = frame_slot(stalled, 30);
+        let samples = audio_samples_before_frame(slot, 30);
+        assert_eq!(slot, 90);
+        assert_eq!(samples, 144_000);
+        assert!(samples <= sample_index(stalled, 48_000));
+        assert_eq!(audio_samples_before_frame(0, 30), 0);
     }
 
     #[test]

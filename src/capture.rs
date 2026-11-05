@@ -87,6 +87,11 @@ impl GraphicsCaptureApiHandler for Handler {
         let width = buffer.width();
         let height = buffer.height();
         let mut data = buffer.as_nopadding_buffer(&mut self.scratch).to_vec();
+        // A restore or resize can report a size the bytes do not cover. Keeping
+        // that frame would panic in the release build and leave the file unindexed.
+        if data.len() != width as usize * height as usize * 4 || width < 2 || height < 2 {
+            return Ok(());
+        }
         for pixel in data.as_chunks_mut::<4>().0 {
             pixel[3] = 255;
         }
@@ -273,9 +278,26 @@ fn crop_for(
     }
 }
 
+fn frame_consistent(frame: &Frame) -> bool {
+    frame.width >= 2
+        && frame.height >= 2
+        && frame.data.len() == frame.width as usize * frame.height as usize * 4
+}
+
+fn blank(width: u32, height: u32) -> Frame {
+    Frame {
+        width,
+        height,
+        data: vec![0; width as usize * height as usize * 4],
+    }
+}
+
 fn fit(frame: Frame, width: u32, height: u32) -> Frame {
     let width = width & !1;
     let height = height & !1;
+    if !frame_consistent(&frame) {
+        return blank(width, height);
+    }
     if frame.width == width && frame.height == height {
         return frame;
     }
@@ -285,7 +307,11 @@ fn fit(frame: Frame, width: u32, height: u32) -> Frame {
     for y in 0..copy_h {
         let source = y * frame.width as usize * 4;
         let target = y * width as usize * 4;
-        data[target..target + copy_w * 4].copy_from_slice(&frame.data[source..source + copy_w * 4]);
+        let row = copy_w * 4;
+        if source + row > frame.data.len() || target + row > data.len() {
+            return blank(width, height);
+        }
+        data[target..target + row].copy_from_slice(&frame.data[source..source + row]);
     }
     Frame {
         width,
@@ -649,11 +675,7 @@ impl Live {
         let frame_time = Duration::from_nanos(1_000_000_000 / fps);
         let mut next_deadline = Instant::now();
         let loop_result = loop {
-            let horizon = geom::sample_index(self.clock.elapsed().as_nanos(), 48_000)
-                .saturating_sub(48_000 / 5);
-            if let Err(error) = self.pull_audio(&mut cursor, record_from, horizon) {
-                break Err(error);
-            }
+            let mut fate = SourceFate::Live;
             if !options.audio_only {
                 let usable = self.recover.map(window_usable).unwrap_or(true);
                 let resumed = self.resilient && usable && !self.was_usable;
@@ -667,6 +689,8 @@ impl Live {
                     && (resumed || !alive)
                     && Instant::now() >= self.next_retry
                 {
+                    // Restoring a minimized window restarts capture and blocks this loop.
+                    // Audio captured during that wait is muxed before the frame stamped after it.
                     self.try_recover(options.profile.video.fps, resumed);
                     self.next_retry = Instant::now() + Duration::from_millis(250);
                 }
@@ -676,7 +700,7 @@ impl Live {
                     .as_ref()
                     .is_some_and(|source| source.capture_alive());
                 let signal = signal_present(self.resilient, usable, alive, arrived.is_some());
-                let fate = source_fate(self.resilient, signal, self.show_no_signal, self.show_card);
+                fate = source_fate(self.resilient, signal, self.show_no_signal, self.show_card);
                 if let Some(frame) = arrived {
                     if fate == SourceFate::Live {
                         self.last = Some(if self.resilient {
@@ -690,10 +714,24 @@ impl Live {
                         self.last = Some(frame);
                     }
                 }
-                let slot = geom::frame_slot(
-                    self.clock.elapsed().as_nanos().saturating_sub(origin_ns),
-                    fps,
-                );
+            }
+            let since_run = self
+                .clock
+                .elapsed()
+                .as_nanos()
+                .saturating_sub(origin_ns)
+                .saturating_sub(200_000_000);
+            let slot = geom::frame_slot(since_run, fps);
+            let horizon = if options.audio_only {
+                geom::sample_index(self.clock.elapsed().as_nanos(), 48_000)
+                    .saturating_sub(48_000 / 5)
+            } else {
+                record_from.saturating_add(geom::audio_samples_before_frame(slot, fps))
+            };
+            if let Err(error) = self.pull_audio(&mut cursor, record_from, horizon) {
+                break Err(error);
+            }
+            if !options.audio_only {
                 if fate == SourceFate::Stop {
                     if slot > last_slot {
                         if let Some(frame) = self.last.as_ref() {
@@ -1230,6 +1268,29 @@ mod source_card {
     }
 
     #[test]
+    fn a_torn_frame_after_restore_does_not_abort() {
+        let torn = Frame {
+            width: 800,
+            height: 600,
+            data: vec![9, 8, 7, 255],
+        };
+        let fitted = fit_into(torn, 640, 480);
+        assert_eq!((fitted.width, fitted.height), (640, 480));
+        assert_eq!(fitted.data.len(), 640 * 480 * 4);
+        let cropped = fit(
+            Frame {
+                width: 320,
+                height: 180,
+                data: vec![1, 2, 3, 4],
+            },
+            200,
+            100,
+        );
+        assert_eq!((cropped.width, cropped.height), (200, 100));
+        assert_eq!(cropped.data.len(), 200 * 100 * 4);
+    }
+
+    #[test]
     fn a_resized_window_stays_inside_the_original_frame() {
         let source = Frame {
             width: 4,
@@ -1512,6 +1573,11 @@ fn monitor_list() -> Vec<Rect> {
 }
 
 fn fit_into(frame: Frame, width: u32, height: u32) -> Frame {
+    let width = width & !1;
+    let height = height & !1;
+    if !frame_consistent(&frame) {
+        return blank(width, height);
+    }
     if frame.width == width && frame.height == height {
         return frame;
     }

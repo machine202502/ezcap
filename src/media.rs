@@ -1591,6 +1591,71 @@ mod tests {
     }
 
     #[test]
+    fn writes_png_and_webp_stills() {
+        init();
+        let dir = directory("stills");
+        let frame = test_frame();
+        for extension in ["png", "webp"] {
+            let path = dir.join(format!("shot.{extension}"));
+            save_frame(&frame, &path).unwrap();
+            let decoded = read_image(&path).unwrap();
+            assert_eq!((decoded.width, decoded.height), (frame.width, frame.height));
+            assert_eq!(decoded.data.len(), frame.data.len());
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn audio_muxed_before_the_jumped_frame_stays_playable() {
+        init();
+        let dir = directory("resume-ok");
+        let path = dir.join("video.mkv");
+        let mut writer = VideoWriter::new(
+            &path,
+            Rect {
+                x: 0,
+                y: 0,
+                w: 64,
+                h: 64,
+            },
+            VideoSettings {
+                height: 64,
+                fps: 30,
+            },
+            Format::Mkv,
+            1,
+            true,
+            true,
+        )
+        .unwrap();
+        let frame = test_frame();
+        for slot in 0..5 {
+            writer.push_at(&frame, slot).unwrap();
+        }
+        let samples_per_frame = 48_000 / 30;
+        writer
+            .push_audio_at(0, &vec![0.1f32; samples_per_frame as usize * 5 * 2])
+            .unwrap();
+        writer
+            .push_audio_at(
+                samples_per_frame * 5,
+                &vec![0.1f32; 48_000usize * 2 * 2],
+            )
+            .unwrap();
+        writer.push_at(&frame, 5 + 60).unwrap();
+        writer.finish().unwrap();
+        let input = format::input(&path).unwrap();
+        assert!(input.duration() > 1_000_000, "the timeline was lost");
+        assert!(input.streams().best(ffmpeg::media::Type::Video).is_some());
+        drop(input);
+        assert!(
+            decoded_audio_samples(&path) >= 48_000,
+            "audio did not survive the stall"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn writes_real_mkv_with_audio_in_one_pass() {
         init();
         let dir = directory("mkv");
