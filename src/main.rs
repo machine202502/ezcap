@@ -811,7 +811,7 @@ impl App {
             }
             capture::Chosen::Window(rect) => {
                 if screenshot {
-                    match capture::grab_staged_window(self.settings.ui.cursor) {
+                    match capture::grab_staged_window() {
                         Ok(frame) => self.save_frame(frame),
                         Err(error) => self.error(&error),
                     }
@@ -825,11 +825,10 @@ impl App {
     }
 
     fn save_rect(&mut self, rect: Rect) {
-        let cursor = self.cursor_now();
         let saved = if self.mode == Mode::Recording {
-            media::save_display_screenshot(rect, None, cursor)
+            media::save_display_screenshot(rect, None)
         } else {
-            media::save_screenshot(rect, None, cursor)
+            media::save_screenshot(rect, None)
         };
         match saved {
             Ok(path) => self.completed(path),
@@ -848,25 +847,16 @@ impl App {
         }
     }
 
-    fn cursor_now(&self) -> bool {
-        if self.mode == Mode::Recording {
-            self.live_cursor
-        } else {
-            self.settings.ui.cursor
-        }
-    }
-
     fn screenshot_screen(&mut self) {
         self.controls.read_ui(&mut self.settings);
         let recording = self.mode == Mode::Recording;
         if recording {
             self.outline.hide();
         }
-        let cursor = self.cursor_now();
         let saved = if recording {
-            media::save_display_screenshot(media::cursor_monitor_rect(), None, cursor)
+            media::save_display_screenshot(media::cursor_monitor_rect(), None)
         } else {
-            media::save_screenshot(media::cursor_monitor_rect(), None, cursor)
+            media::save_screenshot(media::cursor_monitor_rect(), None)
         };
         match saved {
             Ok(path) => self.completed(path),
@@ -917,8 +907,7 @@ impl App {
         }
         let (source, _) = start_plan(place);
         self.region_source = source;
-        let cursor = self.settings.recording(source).cursor();
-        if let Err(error) = region::open(overlay, !recording, cursor) {
+        if let Err(error) = region::open(overlay, !recording) {
             self.error(&error);
             if recording {
                 self.sync_outline();

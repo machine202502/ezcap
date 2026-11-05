@@ -255,16 +255,14 @@ pub fn output_path(kind: &str, extension: &str) -> Result<PathBuf, String> {
     }
 }
 
-pub fn save_screenshot(rect: Rect, path: Option<PathBuf>, cursor: bool) -> Result<PathBuf, String> {
-    write_screenshot(crate::capture::grab_still(rect, cursor)?, path)
+/// Writes a screenshot of the screen. Screenshots never show the pointer; the
+/// Include pointer setting belongs to recordings only.
+pub fn save_screenshot(rect: Rect, path: Option<PathBuf>) -> Result<PathBuf, String> {
+    write_screenshot(crate::capture::grab_still(rect)?, path)
 }
 
-pub fn save_display_screenshot(
-    rect: Rect,
-    path: Option<PathBuf>,
-    cursor: bool,
-) -> Result<PathBuf, String> {
-    write_screenshot(crate::capture::grab_display(rect, cursor)?, path)
+pub fn save_display_screenshot(rect: Rect, path: Option<PathBuf>) -> Result<PathBuf, String> {
+    write_screenshot(crate::capture::grab_display(rect)?, path)
 }
 
 fn write_screenshot(frame: Frame, path: Option<PathBuf>) -> Result<PathBuf, String> {

@@ -104,13 +104,6 @@ impl RecordingProfile {
         }
     }
 
-    pub fn cursor(&self) -> bool {
-        match self {
-            Self::Picture { cursor, .. } => *cursor,
-            Self::Audio(_) => false,
-        }
-    }
-
     /// Drop the picture and keep this profile's audio. An audio profile stays as it is.
     pub fn without_picture(self) -> Self {
         match self {
@@ -596,12 +589,13 @@ mod recording_profiles {
         assert_eq!(capture_session.format, Format::Gif);
         assert_eq!(capture.video(), Some(picture(720, 24)));
         assert_eq!(capture.audio().gain, 110);
-        assert!(capture.cursor());
         assert!(capture_session.cursor);
         settings.ui.cursor = false;
         settings.tray_area.cursor = true;
-        assert!(!settings.applied(ProfileRef::Capture, true).cursor());
-        assert!(settings.recording(ProfileRef::Area).cursor());
+        let capture_picture = settings.applied(ProfileRef::Capture, true).session().0;
+        let area_picture = settings.recording(ProfileRef::Area).session().0;
+        assert!(!capture_picture.cursor);
+        assert!(area_picture.cursor);
 
         let capture_audio = settings.applied(ProfileRef::Capture, false);
         let (_, sound_only) = capture_audio.clone().session();
@@ -628,6 +622,21 @@ mod recording_profiles {
         assert!(audio_only);
         assert_eq!(audio.video(), None);
         assert_eq!(audio.audio().gain, 140);
+    }
+
+    #[test]
+    fn every_picture_profile_keeps_its_own_pointer_for_recording() {
+        let mut settings = Settings::default();
+        settings.ui.cursor = true;
+        settings.tray_area.cursor = false;
+        settings.tray_video.cursor = true;
+
+        let capture = settings.applied(ProfileRef::Capture, true).session().0;
+        let area = settings.applied(ProfileRef::Area, true).session().0;
+        let video = settings.applied(ProfileRef::Video, true).session().0;
+        assert!(capture.cursor);
+        assert!(!area.cursor);
+        assert!(video.cursor);
     }
 
     #[test]

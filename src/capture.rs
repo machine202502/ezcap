@@ -343,22 +343,19 @@ fn fit(frame: Frame, width: u32, height: u32) -> Frame {
     }
 }
 
-/// A copy of the screen that does not open a second capture session.
-pub fn grab_display(rect: Rect, cursor: bool) -> Result<Frame, String> {
+/// A copy of the screen that does not open a second capture session. A screenshot
+/// never contains the pointer, whatever the profile says.
+pub fn grab_display(rect: Rect) -> Result<Frame, String> {
     let mut rect = rect;
     rect.w &= !1;
     rect.h &= !1;
     if rect.w == 0 || rect.h == 0 {
         return Err("The capture area is empty".into());
     }
-    if cursor {
-        media::grab(rect)
-    } else {
-        media::grab_without_cursor(rect)
-    }
+    media::grab_without_cursor(rect)
 }
 
-pub fn grab_still(rect: Rect, cursor: bool) -> Result<Frame, String> {
+pub fn grab_still(rect: Rect) -> Result<Frame, String> {
     let mut rect = rect;
     rect.w &= !1;
     rect.h &= !1;
@@ -367,19 +364,13 @@ pub fn grab_still(rect: Rect, cursor: bool) -> Result<Frame, String> {
         monitor,
         crop_for(rect, origin_x, origin_y, monitor_w, monitor_h),
         30,
-        cursor,
+        false,
     ) {
         Ok((mut capture, frame)) => {
             capture.stop();
             Ok(fit(frame, rect.w, rect.h))
         }
-        Err(_) => {
-            if cursor {
-                media::grab(rect)
-            } else {
-                media::grab_without_cursor(rect)
-            }
-        }
+        Err(_) => media::grab_without_cursor(rect),
     }
 }
 
@@ -1570,9 +1561,9 @@ pub fn choose_source(owner: HWND) -> Option<Chosen> {
     }))
 }
 
-pub fn grab_staged_window(cursor: bool) -> Result<Frame, String> {
+pub fn grab_staged_window() -> Result<Frame, String> {
     let window = take_window().ok_or("The window is no longer available")?;
-    let (mut capture, frame) = VideoCapture::start_window(window, 30, cursor)?;
+    let (mut capture, frame) = VideoCapture::start_window(window, 30, false)?;
     capture.stop();
     Ok(frame)
 }
