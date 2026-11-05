@@ -469,6 +469,7 @@ struct App {
     finalizer: Option<media::Finalizer>,
     live_gain: Option<Arc<AtomicU32>>,
     live_gain_id: Option<i32>,
+    live_cursor: bool,
     started: Option<Instant>,
     saving_started: Option<Instant>,
     tray: NOTIFYICONDATAW,
@@ -505,6 +506,7 @@ impl App {
             finalizer: None,
             live_gain: None,
             live_gain_id: None,
+            live_cursor: true,
             started: None,
             saving_started: None,
             tray: NOTIFYICONDATAW::default(),
@@ -793,6 +795,7 @@ impl App {
     }
 
     fn capture_source(&mut self, screenshot: bool) {
+        self.controls.read_ui(&mut self.settings);
         let Some(chosen) = capture::choose_source(self.hwnd) else {
             return;
         };
@@ -808,7 +811,7 @@ impl App {
             }
             capture::Chosen::Window(rect) => {
                 if screenshot {
-                    match capture::grab_staged_window() {
+                    match capture::grab_staged_window(self.settings.ui.cursor) {
                         Ok(frame) => self.save_frame(frame),
                         Err(error) => self.error(&error),
                     }
@@ -822,10 +825,11 @@ impl App {
     }
 
     fn save_rect(&mut self, rect: Rect) {
+        let cursor = self.cursor_now();
         let saved = if self.mode == Mode::Recording {
-            media::save_display_screenshot(rect, None)
+            media::save_display_screenshot(rect, None, cursor)
         } else {
-            media::save_screenshot(rect, None)
+            media::save_screenshot(rect, None, cursor)
         };
         match saved {
             Ok(path) => self.completed(path),
@@ -844,16 +848,25 @@ impl App {
         }
     }
 
+    fn cursor_now(&self) -> bool {
+        if self.mode == Mode::Recording {
+            self.live_cursor
+        } else {
+            self.settings.ui.cursor
+        }
+    }
+
     fn screenshot_screen(&mut self) {
         self.controls.read_ui(&mut self.settings);
         let recording = self.mode == Mode::Recording;
         if recording {
             self.outline.hide();
         }
+        let cursor = self.cursor_now();
         let saved = if recording {
-            media::save_display_screenshot(media::cursor_monitor_rect(), None)
+            media::save_display_screenshot(media::cursor_monitor_rect(), None, cursor)
         } else {
-            media::save_screenshot(media::cursor_monitor_rect(), None)
+            media::save_screenshot(media::cursor_monitor_rect(), None, cursor)
         };
         match saved {
             Ok(path) => self.completed(path),
@@ -904,7 +917,8 @@ impl App {
         }
         let (source, _) = start_plan(place);
         self.region_source = source;
-        if let Err(error) = region::open(overlay, !recording) {
+        let cursor = self.settings.recording(source).cursor();
+        if let Err(error) = region::open(overlay, !recording, cursor) {
             self.error(&error);
             if recording {
                 self.sync_outline();
@@ -994,6 +1008,7 @@ impl App {
         self.pending_window = false;
         self.pending_resilient = false;
         let recorded_format = profile.format;
+        self.live_cursor = profile.cursor;
         let mic_gain = Arc::new(AtomicU32::new(profile.audio.gain));
         let gain_id = ui::microphone_control(source);
         let options = media::RecordOptions {
@@ -1005,6 +1020,7 @@ impl App {
             resilient,
             show_no_signal: self.settings.show_no_signal,
             show_card: self.settings.show_card,
+            cursor: self.live_cursor,
             mic_gain: mic_gain.clone(),
         };
         match media::Session::start(options) {

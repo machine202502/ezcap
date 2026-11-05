@@ -121,16 +121,18 @@ impl VideoCapture {
         monitor: Monitor,
         crop: Option<(u32, u32, u32, u32)>,
         fps: u32,
+        cursor: bool,
     ) -> Result<(Self, Frame), String> {
-        Self::start_with_cursor(monitor, crop, fps, CursorCaptureSettings::WithCursor)
-    }
-
-    fn start_still(
-        monitor: Monitor,
-        crop: Option<(u32, u32, u32, u32)>,
-        fps: u32,
-    ) -> Result<(Self, Frame), String> {
-        Self::start_with_cursor(monitor, crop, fps, CursorCaptureSettings::WithoutCursor)
+        Self::start_with_cursor(
+            monitor,
+            crop,
+            fps,
+            if cursor {
+                CursorCaptureSettings::WithCursor
+            } else {
+                CursorCaptureSettings::WithoutCursor
+            },
+        )
     }
 
     fn start_with_cursor(
@@ -168,7 +170,7 @@ impl VideoCapture {
         Ok((capture, frame))
     }
 
-    fn start_window(window: Window, fps: u32) -> Result<(Self, Frame), String> {
+    fn start_window(window: Window, fps: u32, cursor: bool) -> Result<(Self, Frame), String> {
         let slot = Arc::new(Slot {
             frame: Mutex::new(None),
             arrived: Condvar::new(),
@@ -177,7 +179,11 @@ impl VideoCapture {
         let settings = |border| {
             Settings::new(
                 window,
-                CursorCaptureSettings::WithCursor,
+                if cursor {
+                    CursorCaptureSettings::WithCursor
+                } else {
+                    CursorCaptureSettings::WithoutCursor
+                },
                 border,
                 SecondaryWindowSettings::Exclude,
                 MinimumUpdateIntervalSettings::Custom(interval),
@@ -338,31 +344,42 @@ fn fit(frame: Frame, width: u32, height: u32) -> Frame {
 }
 
 /// A copy of the screen that does not open a second capture session.
-pub fn grab_display(rect: Rect) -> Result<Frame, String> {
+pub fn grab_display(rect: Rect, cursor: bool) -> Result<Frame, String> {
     let mut rect = rect;
     rect.w &= !1;
     rect.h &= !1;
     if rect.w == 0 || rect.h == 0 {
         return Err("The capture area is empty".into());
     }
-    media::grab_without_cursor(rect)
+    if cursor {
+        media::grab(rect)
+    } else {
+        media::grab_without_cursor(rect)
+    }
 }
 
-pub fn grab_still(rect: Rect) -> Result<Frame, String> {
+pub fn grab_still(rect: Rect, cursor: bool) -> Result<Frame, String> {
     let mut rect = rect;
     rect.w &= !1;
     rect.h &= !1;
     let (monitor, origin_x, origin_y, monitor_w, monitor_h) = monitor_of(rect);
-    match VideoCapture::start_still(
+    match VideoCapture::start(
         monitor,
         crop_for(rect, origin_x, origin_y, monitor_w, monitor_h),
         30,
+        cursor,
     ) {
         Ok((mut capture, frame)) => {
             capture.stop();
             Ok(fit(frame, rect.w, rect.h))
         }
-        Err(_) => media::grab_without_cursor(rect),
+        Err(_) => {
+            if cursor {
+                media::grab(rect)
+            } else {
+                media::grab_without_cursor(rect)
+            }
+        }
     }
 }
 
@@ -600,6 +617,7 @@ struct Live {
     resilient: bool,
     show_no_signal: bool,
     show_card: bool,
+    cursor: bool,
     placeholder: Option<Frame>,
     next_retry: Instant,
     was_usable: bool,
@@ -619,7 +637,9 @@ impl Live {
             if let Some(source) = &mut self.video {
                 source.stop();
             }
-            if let Ok((capture, _)) = VideoCapture::start(monitor_of(self.rect).0, None, fps) {
+            if let Ok((capture, _)) =
+                VideoCapture::start(monitor_of(self.rect).0, None, fps, self.cursor)
+            {
                 self.video = Some(capture);
             }
             return;
@@ -633,7 +653,7 @@ impl Live {
         if let Some(source) = &mut self.video {
             source.stop();
         }
-        if let Ok((capture, _)) = VideoCapture::start_window(window, fps) {
+        if let Ok((capture, _)) = VideoCapture::start_window(window, fps, self.cursor) {
             self.video = Some(capture);
         } else {
             self.video = None;
@@ -727,7 +747,12 @@ impl Live {
                         });
                     }
                 } else if !self.resilient {
-                    if let Ok(frame) = media::grab(self.rect) {
+                    let grabbed = if self.cursor {
+                        media::grab(self.rect)
+                    } else {
+                        media::grab_without_cursor(self.rect)
+                    };
+                    if let Ok(frame) = grabbed {
                         self.last = Some(frame);
                     }
                 }
@@ -885,7 +910,8 @@ fn prepare(options: &RecordOptions, _stop: &AtomicBool) -> Result<Live, String> 
         None
     } else if options.window {
         let window = take_window().ok_or("The window is no longer available")?;
-        let (capture, frame) = VideoCapture::start_window(window, options.profile.video.fps)?;
+        let (capture, frame) =
+            VideoCapture::start_window(window, options.profile.video.fps, options.cursor)?;
         rect.w = frame.width.max(2) & !1;
         rect.h = frame.height.max(2) & !1;
         recover = Some(window);
@@ -896,6 +922,7 @@ fn prepare(options: &RecordOptions, _stop: &AtomicBool) -> Result<Live, String> 
             monitor,
             crop_for(rect, origin_x, origin_y, monitor_w, monitor_h),
             options.profile.video.fps,
+            options.cursor,
         ) {
             Ok((capture, _)) => Some(capture),
             Err(error) => {
@@ -938,7 +965,13 @@ fn prepare(options: &RecordOptions, _stop: &AtomicBool) -> Result<Live, String> 
         let raw = video
             .as_mut()
             .and_then(|source| source.latest())
-            .or_else(|| media::grab(rect).ok())
+            .or_else(|| {
+                if options.cursor {
+                    media::grab(rect).ok()
+                } else {
+                    media::grab_without_cursor(rect).ok()
+                }
+            })
             .unwrap_or(Frame {
                 width: rect.w,
                 height: rect.h,
@@ -966,6 +999,7 @@ fn prepare(options: &RecordOptions, _stop: &AtomicBool) -> Result<Live, String> 
         resilient: options.resilient || options.window,
         show_no_signal: options.show_no_signal,
         show_card: options.show_card,
+        cursor: options.cursor,
         placeholder: None,
         next_retry: Instant::now(),
         was_usable: true,
@@ -1536,9 +1570,9 @@ pub fn choose_source(owner: HWND) -> Option<Chosen> {
     }))
 }
 
-pub fn grab_staged_window() -> Result<Frame, String> {
+pub fn grab_staged_window(cursor: bool) -> Result<Frame, String> {
     let window = take_window().ok_or("The window is no longer available")?;
-    let (mut capture, frame) = VideoCapture::start_window(window, 30)?;
+    let (mut capture, frame) = VideoCapture::start_window(window, 30, cursor)?;
     capture.stop();
     Ok(frame)
 }

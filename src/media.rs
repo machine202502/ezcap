@@ -80,6 +80,7 @@ pub struct Profile {
     pub format: Format,
     pub video: VideoSettings,
     pub audio: AudioSettings,
+    pub cursor: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -102,6 +103,8 @@ pub struct RecordOptions {
     pub show_no_signal: bool,
     /// When the signal is gone and recording continues, show the card instead of the last frame.
     pub show_card: bool,
+    /// Draw the pointer into captured frames. Screenshots of this profile use the same choice.
+    pub cursor: bool,
     /// Microphone gain in percent. Read on every audio callback so a change made while
     /// recording changes the mix immediately.
     pub mic_gain: Arc<AtomicU32>,
@@ -252,12 +255,16 @@ pub fn output_path(kind: &str, extension: &str) -> Result<PathBuf, String> {
     }
 }
 
-pub fn save_screenshot(rect: Rect, path: Option<PathBuf>) -> Result<PathBuf, String> {
-    write_screenshot(crate::capture::grab_still(rect)?, path)
+pub fn save_screenshot(rect: Rect, path: Option<PathBuf>, cursor: bool) -> Result<PathBuf, String> {
+    write_screenshot(crate::capture::grab_still(rect, cursor)?, path)
 }
 
-pub fn save_display_screenshot(rect: Rect, path: Option<PathBuf>) -> Result<PathBuf, String> {
-    write_screenshot(crate::capture::grab_display(rect)?, path)
+pub fn save_display_screenshot(
+    rect: Rect,
+    path: Option<PathBuf>,
+    cursor: bool,
+) -> Result<PathBuf, String> {
+    write_screenshot(crate::capture::grab_display(rect, cursor)?, path)
 }
 
 fn write_screenshot(frame: Frame, path: Option<PathBuf>) -> Result<PathBuf, String> {

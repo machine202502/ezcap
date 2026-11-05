@@ -16,6 +16,7 @@ pub struct CaptureSettings {
     pub format: Format,
     pub video: [VideoSettings; 3],
     pub audio: AudioSettings,
+    pub cursor: bool,
 }
 
 impl CaptureSettings {
@@ -37,6 +38,7 @@ impl CaptureSettings {
                 },
             ],
             audio: AudioSettings::default(),
+            cursor: true,
         }
     }
 
@@ -45,6 +47,7 @@ impl CaptureSettings {
             format: self.format,
             video: self.video[self.format.index()],
             audio: self.audio.clone(),
+            cursor: self.cursor,
         }
     }
 
@@ -54,6 +57,7 @@ impl CaptureSettings {
             format: picture.format,
             video: picture.video,
             audio: picture.audio,
+            cursor: picture.cursor,
         }
     }
 }
@@ -81,6 +85,7 @@ pub enum RecordingProfile {
         format: Format,
         video: VideoSettings,
         audio: AudioSettings,
+        cursor: bool,
     },
     Audio(AudioSettings),
 }
@@ -99,6 +104,13 @@ impl RecordingProfile {
         }
     }
 
+    pub fn cursor(&self) -> bool {
+        match self {
+            Self::Picture { cursor, .. } => *cursor,
+            Self::Audio(_) => false,
+        }
+    }
+
     /// Drop the picture and keep this profile's audio. An audio profile stays as it is.
     pub fn without_picture(self) -> Self {
         match self {
@@ -114,11 +126,13 @@ impl RecordingProfile {
                 format,
                 video,
                 audio,
+                cursor,
             } => (
                 crate::media::Profile {
                     format,
                     video,
                     audio,
+                    cursor,
                 },
                 false,
             ),
@@ -127,6 +141,7 @@ impl RecordingProfile {
                     format: Format::Mkv,
                     video: VideoSettings { height: 0, fps: 30 },
                     audio,
+                    cursor: false,
                 },
                 true,
             ),
@@ -321,6 +336,7 @@ impl Settings {
                 .clamp(5, 60);
         }
         load_audio(&registry, "ui", &mut settings.ui.audio);
+        settings.ui.cursor = registry.dword("ui_cursor", 1) != 0;
         load_profile(&registry, "area", &mut settings.tray_area);
         load_profile(&registry, "video", &mut settings.tray_video);
         load_audio(&registry, "audio", &mut settings.tray_audio);
@@ -381,6 +397,7 @@ impl Settings {
             registry.set_dword(&format!("{name}_fps"), self.ui.video[index].fps);
         }
         save_audio(&registry, "ui", &self.ui.audio);
+        registry.set_dword("ui_cursor", self.ui.cursor as u32);
         save_profile(&registry, "area", &self.tray_area);
         save_profile(&registry, "video", &self.tray_video);
         save_audio(&registry, "audio", &self.tray_audio);
@@ -444,6 +461,7 @@ fn load_profile(registry: &Registry, prefix: &str, profile: &mut CaptureSettings
             .clamp(5, 60);
     }
     load_audio(registry, prefix, &mut profile.audio);
+    profile.cursor = registry.dword(&format!("{prefix}_cursor"), 1) != 0;
 }
 
 fn save_profile(registry: &Registry, prefix: &str, profile: &CaptureSettings) {
@@ -456,6 +474,7 @@ fn save_profile(registry: &Registry, prefix: &str, profile: &CaptureSettings) {
         registry.set_dword(&format!("{prefix}_{name}_fps"), profile.video[index].fps);
     }
     save_audio(registry, prefix, &profile.audio);
+    registry.set_dword(&format!("{prefix}_cursor"), profile.cursor as u32);
 }
 
 fn update_autostart(enabled: bool, minimized: bool) {
@@ -577,6 +596,12 @@ mod recording_profiles {
         assert_eq!(capture_session.format, Format::Gif);
         assert_eq!(capture.video(), Some(picture(720, 24)));
         assert_eq!(capture.audio().gain, 110);
+        assert!(capture.cursor());
+        assert!(capture_session.cursor);
+        settings.ui.cursor = false;
+        settings.tray_area.cursor = true;
+        assert!(!settings.applied(ProfileRef::Capture, true).cursor());
+        assert!(settings.recording(ProfileRef::Area).cursor());
 
         let capture_audio = settings.applied(ProfileRef::Capture, false);
         let (_, sound_only) = capture_audio.clone().session();

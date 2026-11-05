@@ -216,6 +216,7 @@ struct Region {
     current_monitor: usize,
     overlay: Overlay,
     allow_record: bool,
+    cursor: bool,
     selection: Option<Selection>,
     drag: Option<Drag>,
     tool: Tool,
@@ -248,14 +249,19 @@ struct Region {
 }
 
 impl Region {
-    fn new(hwnd: HWND, overlay: Overlay, allow_record: bool) -> Result<Box<Self>, String> {
+    fn new(
+        hwnd: HWND,
+        overlay: Overlay,
+        allow_record: bool,
+        cursor: bool,
+    ) -> Result<Box<Self>, String> {
         let current = media::cursor_monitor_rect();
         let frame = if allow_record {
-            crate::capture::grab_still(current)?
+            crate::capture::grab_still(current, cursor)?
         } else {
-            crate::capture::grab_display(current)?
+            crate::capture::grab_display(current, cursor)?
         };
-        let mut region = Self::with_frame(hwnd, overlay, allow_record, frame, current);
+        let mut region = Self::with_frame(hwnd, overlay, allow_record, cursor, frame, current);
         let monitors = monitor_rects();
         region.current_monitor = monitors
             .iter()
@@ -269,6 +275,7 @@ impl Region {
         hwnd: HWND,
         overlay: Overlay,
         allow_record: bool,
+        cursor: bool,
         frame: Frame,
         monitor: Rect,
     ) -> Box<Self> {
@@ -287,6 +294,7 @@ impl Region {
             current_monitor: 0,
             overlay,
             allow_record,
+            cursor,
             selection: None,
             drag: None,
             tool: Tool::Select,
@@ -594,7 +602,7 @@ impl Region {
         }
         self.current_monitor = (self.current_monitor + 1) % self.monitors.len();
         self.monitor = self.monitors[self.current_monitor];
-        if let Ok(frame) = crate::capture::grab_still(self.monitor) {
+        if let Ok(frame) = crate::capture::grab_still(self.monitor, self.cursor) {
             self.frame = frame;
             self.selection = None;
             self.shapes.clear();
@@ -2638,7 +2646,7 @@ pub fn register(instance: HINSTANCE) {
     }
 }
 
-pub fn open(overlay: Overlay, allow_record: bool) -> Result<(), String> {
+pub fn open(overlay: Overlay, allow_record: bool, cursor: bool) -> Result<(), String> {
     unsafe {
         // SAFETY: The class name lives for the process. The new HWND is stored and destroyed with its owner.
 
@@ -2661,7 +2669,7 @@ pub fn open(overlay: Overlay, allow_record: bool) -> Result<(), String> {
             None,
         )
         .map_err(|error| error.to_string())?;
-        REGION = Box::into_raw(Region::new(hwnd, overlay, allow_record)?);
+        REGION = Box::into_raw(Region::new(hwnd, overlay, allow_record, cursor)?);
         region().show();
         Ok(())
     }
@@ -2699,6 +2707,7 @@ pub fn open_with_frame(frame: Frame, scale: u32) -> Result<(), String> {
         REGION = Box::into_raw(Region::with_frame(
             hwnd,
             Overlay::Screenshot,
+            true,
             true,
             frame,
             monitor,

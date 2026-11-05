@@ -141,6 +141,9 @@ pub const ID_VIDEO_HEADING: i32 = 182;
 pub const ID_THREADS_HEADING: i32 = 183;
 pub const ID_SCALE_HEADING: i32 = 184;
 pub const ID_SCALE: i32 = 185;
+pub const ID_CURSOR: i32 = 186;
+pub const ID_TRAY_AREA_CURSOR: i32 = 187;
+pub const ID_TRAY_VIDEO_CURSOR: i32 = 188;
 pub const ID_TRAY_AUDIO_SYSTEM: i32 = 190;
 pub const ID_TRAY_AUDIO_MIC: i32 = 191;
 pub const ID_TRAY_AUDIO_DEVICE: i32 = 192;
@@ -161,7 +164,7 @@ pub use crate::theme::{ACCENT, ACCENT_DEEP, BACKGROUND, DISABLED, MIST, TEXT};
 const WINDOW_WIDTH: i32 = 760;
 /// Tallest page (Settings) plus its bottom margin. Both pages use it, so switching
 /// tabs never changes the window height and new settings never grow the window.
-const WINDOW_HEIGHT: i32 = 1117;
+const WINDOW_HEIGHT: i32 = 1181;
 
 struct Place {
     id: i32,
@@ -181,7 +184,7 @@ const TABS: [Place; 4] = [
     p(ID_REFRESH, 592, 10, 100, 32),
     p(ID_ABOUT, 700, 10, 32, 32),
 ];
-const CAPTURE: [Place; 25] = [
+const CAPTURE: [Place; 26] = [
     p(ID_FORMAT, 28, 58, 228, 26),
     p(ID_FORMAT + 1, 264, 58, 228, 26),
     p(ID_FORMAT + 2, 500, 58, 228, 26),
@@ -194,22 +197,23 @@ const CAPTURE: [Place; 25] = [
     p(ID_MIC_DEVICE, 196, 207, 260, 300),
     p(ID_MIC_GAIN, 464, 206, 180, 28),
     p(ID_MIC_GAIN_VALUE, 652, 207, 80, 26),
-    p(ID_SHOT_LABEL, 28, 252, 704, 22),
-    p(ID_SHOT_SCREEN, 28, 278, 228, 36),
-    p(ID_SHOT_SOURCE, 264, 278, 228, 36),
-    p(ID_SHOT_REGION, 500, 278, 228, 36),
-    p(ID_CAPTURE_LABEL, 28, 326, 704, 22),
-    p(ID_CAPTURE_SCREEN, 28, 352, 228, 36),
-    p(ID_CAPTURE_SOURCE, 264, 352, 228, 36),
-    p(ID_CAPTURE_REGION, 500, 352, 228, 36),
-    p(ID_AUDIO_LABEL, 28, 400, 704, 22),
-    p(ID_CAPTURE_AUDIO, 28, 426, 704, 36),
-    p(ID_STOP_LABEL, 28, 474, 704, 22),
-    p(ID_STOP, 28, 500, 704, 36),
-    p(ID_STATUS, 28, 552, 704, 28),
+    p(ID_CURSOR, 28, 244, 704, 26),
+    p(ID_SHOT_LABEL, 28, 284, 704, 22),
+    p(ID_SHOT_SCREEN, 28, 310, 228, 36),
+    p(ID_SHOT_SOURCE, 264, 310, 228, 36),
+    p(ID_SHOT_REGION, 500, 310, 228, 36),
+    p(ID_CAPTURE_LABEL, 28, 358, 704, 22),
+    p(ID_CAPTURE_SCREEN, 28, 384, 228, 36),
+    p(ID_CAPTURE_SOURCE, 264, 384, 228, 36),
+    p(ID_CAPTURE_REGION, 500, 384, 228, 36),
+    p(ID_AUDIO_LABEL, 28, 432, 704, 22),
+    p(ID_CAPTURE_AUDIO, 28, 458, 704, 36),
+    p(ID_STOP_LABEL, 28, 506, 704, 22),
+    p(ID_STOP, 28, 532, 704, 36),
+    p(ID_STATUS, 28, 584, 704, 28),
 ];
 
-const SETTINGS: [Place; 46] = [
+const SETTINGS: [Place; 48] = [
     p(ID_AUTOSTART, 28, 56, 704, 26),
     p(ID_START_MINIMIZED, 28, 87, 704, 26),
     p(ID_HIDE_ACTIVE, 28, 118, 704, 26),
@@ -233,29 +237,31 @@ const SETTINGS: [Place; 46] = [
     p(ID_TRAY_AREA_DEVICE, 196, 607, 260, 300),
     p(ID_TRAY_AREA_GAIN, 464, 606, 180, 28),
     p(ID_TRAY_AREA_GAIN_VALUE, 652, 607, 80, 26),
-    p(ID_VIDEO_HEADING, 28, 664, 704, 24),
-    p(ID_TRAY_VIDEO_FORMAT, 28, 690, 228, 26),
-    p(ID_TRAY_VIDEO_FORMAT + 1, 264, 690, 228, 26),
-    p(ID_TRAY_VIDEO_FORMAT + 2, 500, 690, 228, 26),
-    p(ID_TRAY_VIDEO_PRESET, 28, 728, 346, 300),
-    p(ID_TRAY_VIDEO_FORMAT + 3, 386, 728, 346, 300),
-    p(ID_TRAY_VIDEO_FORMAT + 4, 28, 766, 616, 28),
-    p(ID_TRAY_VIDEO_FPS_VALUE, 652, 770, 80, 24),
-    p(ID_TRAY_VIDEO_FORMAT + 6, 28, 806, 704, 26),
-    p(ID_TRAY_VIDEO_FORMAT + 7, 28, 838, 160, 26),
-    p(ID_TRAY_VIDEO_DEVICE, 196, 837, 260, 300),
-    p(ID_TRAY_VIDEO_GAIN, 464, 836, 180, 28),
-    p(ID_TRAY_VIDEO_GAIN_VALUE, 652, 837, 80, 26),
-    p(ID_TRAY_AUDIO_HEADING, 28, 894, 704, 24),
-    p(ID_TRAY_AUDIO_SYSTEM, 28, 920, 704, 26),
-    p(ID_TRAY_AUDIO_MIC, 28, 952, 160, 26),
-    p(ID_TRAY_AUDIO_DEVICE, 196, 951, 260, 300),
-    p(ID_TRAY_AUDIO_GAIN, 464, 950, 180, 28),
-    p(ID_TRAY_AUDIO_GAIN_VALUE, 652, 951, 80, 26),
-    p(ID_THREADS_HEADING, 28, 1012, 346, 24),
-    p(ID_THREADS, 28, 1038, 346, 300),
-    p(ID_SCALE_HEADING, 386, 1012, 346, 24),
-    p(ID_SCALE, 386, 1038, 346, 300),
+    p(ID_TRAY_AREA_CURSOR, 28, 648, 704, 26),
+    p(ID_VIDEO_HEADING, 28, 696, 704, 24),
+    p(ID_TRAY_VIDEO_FORMAT, 28, 722, 228, 26),
+    p(ID_TRAY_VIDEO_FORMAT + 1, 264, 722, 228, 26),
+    p(ID_TRAY_VIDEO_FORMAT + 2, 500, 722, 228, 26),
+    p(ID_TRAY_VIDEO_PRESET, 28, 760, 346, 300),
+    p(ID_TRAY_VIDEO_FORMAT + 3, 386, 760, 346, 300),
+    p(ID_TRAY_VIDEO_FORMAT + 4, 28, 798, 616, 28),
+    p(ID_TRAY_VIDEO_FPS_VALUE, 652, 802, 80, 24),
+    p(ID_TRAY_VIDEO_FORMAT + 6, 28, 838, 704, 26),
+    p(ID_TRAY_VIDEO_FORMAT + 7, 28, 870, 160, 26),
+    p(ID_TRAY_VIDEO_DEVICE, 196, 869, 260, 300),
+    p(ID_TRAY_VIDEO_GAIN, 464, 868, 180, 28),
+    p(ID_TRAY_VIDEO_GAIN_VALUE, 652, 869, 80, 26),
+    p(ID_TRAY_VIDEO_CURSOR, 28, 908, 704, 26),
+    p(ID_TRAY_AUDIO_HEADING, 28, 958, 704, 24),
+    p(ID_TRAY_AUDIO_SYSTEM, 28, 984, 704, 26),
+    p(ID_TRAY_AUDIO_MIC, 28, 1016, 160, 26),
+    p(ID_TRAY_AUDIO_DEVICE, 196, 1015, 260, 300),
+    p(ID_TRAY_AUDIO_GAIN, 464, 1014, 180, 28),
+    p(ID_TRAY_AUDIO_GAIN_VALUE, 652, 1015, 80, 26),
+    p(ID_THREADS_HEADING, 28, 1076, 346, 24),
+    p(ID_THREADS, 28, 1102, 346, 300),
+    p(ID_SCALE_HEADING, 386, 1076, 346, 24),
+    p(ID_SCALE, 386, 1102, 346, 300),
 ];
 
 pub struct Controls {
@@ -553,14 +559,18 @@ impl Controls {
                 "Keep recording with a no-signal card if the source disappears",
             ),
             (ID_CARD, "Show a no-signal card instead of the last frame"),
+            (ID_CURSOR, "Include pointer"),
+            (ID_TRAY_AREA_CURSOR, "Include pointer"),
+            (ID_TRAY_VIDEO_CURSOR, "Include pointer"),
         ] {
+            let page = if id == ID_CURSOR { 0 } else { 1 };
             self.create_control(
                 w!("BUTTON"),
                 text,
                 WINDOW_STYLE(BS_AUTOCHECKBOX as u32),
                 WINDOW_EX_STYLE(0),
                 id,
-                1,
+                page,
             );
         }
         self.create_control(
@@ -834,7 +844,7 @@ impl Controls {
                 self.place(place);
             }
             for index in 0..HISTORY_COUNT {
-                let y = 588 + index * 28;
+                let y = 620 + index * 28;
                 self.place(&p(ID_HISTORY + index, 28, y, 608, 24));
                 self.place(&p(ID_HISTORY_OPEN + index, 644, y, 24, 24));
                 self.place(&p(ID_HISTORY_COPY + index, 676, y, 24, 24));
@@ -947,6 +957,9 @@ impl Controls {
             (ID_NOTIFY, settings.completion_sound),
             (ID_NO_SIGNAL, settings.show_no_signal),
             (ID_CARD, settings.show_card),
+            (ID_CURSOR, settings.ui.cursor),
+            (ID_TRAY_AREA_CURSOR, settings.tray_area.cursor),
+            (ID_TRAY_VIDEO_CURSOR, settings.tray_video.cursor),
         ] {
             self.check(id, value);
         }
@@ -1216,6 +1229,7 @@ impl Controls {
             ID_MIC_DEVICE,
             &settings.ui.audio.clone(),
         );
+        settings.ui.cursor = self.checked(ID_CURSOR);
         settings.tray_area = self.read_tray(settings, true);
         settings.tray_video = self.read_tray(settings, false);
         settings.tray_audio = self.audio_from(
@@ -1274,6 +1288,11 @@ impl Controls {
             fps,
         };
         profile.audio = self.audio_from(base + 6, base + 7, base + 8, &previous.audio);
+        profile.cursor = self.checked(if area {
+            ID_TRAY_AREA_CURSOR
+        } else {
+            ID_TRAY_VIDEO_CURSOR
+        });
         self.select(base + 9, preset_index(format, profile.video[format_index]));
         profile
     }
