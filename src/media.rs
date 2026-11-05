@@ -146,6 +146,15 @@ pub fn cursor_monitor_rect() -> Rect {
 }
 
 pub fn grab(rect: Rect) -> Result<Frame, String> {
+    grab_screen(rect, true)
+}
+
+/// Screen pixels for a still. The pointer is not drawn into the frame.
+pub fn grab_without_cursor(rect: Rect) -> Result<Frame, String> {
+    grab_screen(rect, false)
+}
+
+fn grab_screen(rect: Rect, draw_cursor: bool) -> Result<Frame, String> {
     // SAFETY: The screen DC is released before return. The bitmap header size is set, and the copy uses only the requested byte count.
     unsafe {
         let screen = GetDC(None);
@@ -183,7 +192,7 @@ pub fn grab(rect: Rect) -> Result<Frame, String> {
             cbSize: std::mem::size_of::<CURSORINFO>() as u32,
             ..Default::default()
         };
-        if GetCursorInfo(&mut cursor).is_ok() && cursor.flags == CURSOR_SHOWING {
+        if draw_cursor && GetCursorInfo(&mut cursor).is_ok() && cursor.flags == CURSOR_SHOWING {
             let mut icon_info = ICONINFO::default();
             if GetIconInfo(cursor.hCursor, &mut icon_info).is_ok() {
                 let x = cursor.ptScreenPos.x - rect.x - icon_info.xHotspot as i32;

@@ -122,6 +122,23 @@ impl VideoCapture {
         crop: Option<(u32, u32, u32, u32)>,
         fps: u32,
     ) -> Result<(Self, Frame), String> {
+        Self::start_with_cursor(monitor, crop, fps, CursorCaptureSettings::WithCursor)
+    }
+
+    fn start_still(
+        monitor: Monitor,
+        crop: Option<(u32, u32, u32, u32)>,
+        fps: u32,
+    ) -> Result<(Self, Frame), String> {
+        Self::start_with_cursor(monitor, crop, fps, CursorCaptureSettings::WithoutCursor)
+    }
+
+    fn start_with_cursor(
+        monitor: Monitor,
+        crop: Option<(u32, u32, u32, u32)>,
+        fps: u32,
+        cursor: CursorCaptureSettings,
+    ) -> Result<(Self, Frame), String> {
         let slot = Arc::new(Slot {
             frame: Mutex::new(None),
             arrived: Condvar::new(),
@@ -130,7 +147,7 @@ impl VideoCapture {
         let settings = |border| {
             Settings::new(
                 monitor,
-                CursorCaptureSettings::WithCursor,
+                cursor,
                 border,
                 SecondaryWindowSettings::Exclude,
                 MinimumUpdateIntervalSettings::Custom(interval),
@@ -328,7 +345,7 @@ pub fn grab_display(rect: Rect) -> Result<Frame, String> {
     if rect.w == 0 || rect.h == 0 {
         return Err("The capture area is empty".into());
     }
-    media::grab(rect)
+    media::grab_without_cursor(rect)
 }
 
 pub fn grab_still(rect: Rect) -> Result<Frame, String> {
@@ -336,7 +353,7 @@ pub fn grab_still(rect: Rect) -> Result<Frame, String> {
     rect.w &= !1;
     rect.h &= !1;
     let (monitor, origin_x, origin_y, monitor_w, monitor_h) = monitor_of(rect);
-    match VideoCapture::start(
+    match VideoCapture::start_still(
         monitor,
         crop_for(rect, origin_x, origin_y, monitor_w, monitor_h),
         30,
@@ -345,7 +362,7 @@ pub fn grab_still(rect: Rect) -> Result<Frame, String> {
             capture.stop();
             Ok(fit(frame, rect.w, rect.h))
         }
-        Err(_) => media::grab(rect),
+        Err(_) => media::grab_without_cursor(rect),
     }
 }
 
