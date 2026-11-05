@@ -2313,9 +2313,6 @@ fn measure(dc: HDC, font: HFONT, text: &str) -> i32 {
 fn action_metrics(region: &Region, role: Role) -> (i32, i32, i32, i32) {
     let pad = (8 * region.scale as i32 / 100).max(6);
     let gap = (8 * region.scale as i32 / 100).max(6);
-    let Some(caption) = caption(role) else {
-        return (pad, 0, 0, 0);
-    };
     let Some(glyph) = icon(role) else {
         return (pad, 0, 0, 0);
     };
@@ -2325,7 +2322,10 @@ fn action_metrics(region: &Region, role: Role) -> (i32, i32, i32, i32) {
         let dc = GetDC(None);
         let icon_w =
             measure(dc, region.icon_font, glyph).max((16 * region.scale as i32 / 100).max(14));
-        let text_w = measure(dc, region.font, caption);
+        let (gap, text_w) = match caption(role) {
+            Some(caption) => (gap, measure(dc, region.font, caption)),
+            None => (0, 0),
+        };
         ReleaseDC(None, dc);
         (pad, icon_w, gap, text_w)
     }
@@ -2352,8 +2352,10 @@ fn icon(role: Role) -> Option<&'static str> {
         Role::Copy => "\u{E1CA}",
         Role::Save => "\u{E248}",
         Role::Record => "\u{E69A}",
-        Role::RecordMkv | Role::RecordGif | Role::RecordWebp => "\u{E69A}",
-        Role::Video => "\u{E6A0}",
+        Role::RecordMkv => "\u{E792}",
+        Role::RecordGif => "\u{E274}",
+        Role::RecordWebp => "\u{E2CA}",
+        Role::Video => "\u{E4DA}",
         Role::Cancel => "\u{E4F6}",
         _ => return None,
     })
@@ -2361,15 +2363,34 @@ fn icon(role: Role) -> Option<&'static str> {
 
 fn caption(role: Role) -> Option<&'static str> {
     match role {
-        Role::Copy => Some("Copy"),
-        Role::Save => Some("Save…"),
         Role::Record => Some("Record"),
-        Role::RecordMkv => Some("MKV"),
-        Role::RecordGif => Some("GIF"),
-        Role::RecordWebp => Some("WebP"),
-        Role::Video => Some("Video"),
-        Role::Cancel => Some("Cancel"),
         _ => None,
+    }
+}
+
+fn button_fill(role: Role, enabled: bool, primary: bool, swatch: Option<usize>) -> COLORREF {
+    if let Some(swatch) = swatch {
+        theme::SWATCHES[swatch]
+    } else if !enabled {
+        theme::OVERLAY_DISABLED
+    } else if role == Role::Copy {
+        theme::COPY
+    } else if role == Role::Cancel {
+        theme::CANCEL
+    } else if primary {
+        theme::ACCENT
+    } else {
+        theme::OVERLAY
+    }
+}
+
+fn button_ink(role: Role, enabled: bool, primary: bool) -> COLORREF {
+    if !enabled {
+        theme::OVERLAY_DISABLED_INK
+    } else if primary || matches!(role, Role::Copy | Role::Cancel) {
+        theme::ON_ACCENT
+    } else {
+        theme::OVERLAY_INK
     }
 }
 
@@ -2390,22 +2411,8 @@ fn draw_button(dc: HDC, region: &Region, button: &Button) {
             button.role,
             Role::Record | Role::RecordMkv | Role::RecordGif | Role::RecordWebp
         );
-    let fill = if let Some(swatch) = button.swatch {
-        theme::SWATCHES[swatch]
-    } else if !enabled {
-        theme::OVERLAY_DISABLED
-    } else if primary {
-        theme::ACCENT
-    } else {
-        theme::OVERLAY
-    };
-    let ink = if !enabled {
-        theme::OVERLAY_DISABLED_INK
-    } else if primary {
-        theme::ON_ACCENT
-    } else {
-        theme::OVERLAY_INK
-    };
+    let fill = button_fill(button.role, enabled, primary, button.swatch);
+    let ink = button_ink(button.role, enabled, primary);
     unsafe {
         // SAFETY: The color is a plain COLORREF. The brush is stored for the process or deleted in this block.
 
@@ -2933,18 +2940,27 @@ fn opening_roles(overlay: Overlay) -> Vec<Role> {
 }
 
 fn action_roles(overlay: Overlay) -> Vec<Role> {
-    let mut roles = Vec::new();
-    if overlay.annotates() {
-        roles.extend([Role::Copy, Role::Save]);
-    }
     if overlay.shows_video() {
-        roles.extend([Role::RecordMkv, Role::RecordGif, Role::RecordWebp]);
-        roles.push(Role::Video);
-    } else if overlay == Overlay::Capture {
-        roles.push(Role::Record);
+        vec![
+            Role::RecordMkv,
+            Role::RecordGif,
+            Role::RecordWebp,
+            Role::Video,
+            Role::Cancel,
+            Role::Copy,
+            Role::Save,
+        ]
+    } else {
+        let mut roles = Vec::new();
+        if overlay.annotates() {
+            roles.extend([Role::Copy, Role::Save]);
+        }
+        if overlay == Overlay::Capture {
+            roles.push(Role::Record);
+        }
+        roles.push(Role::Cancel);
+        roles
     }
-    roles.push(Role::Cancel);
-    roles
 }
 
 pub fn take_outcome() -> Option<Outcome> {
@@ -3192,13 +3208,13 @@ mod region_actions {
         assert_eq!(
             action_roles(Overlay::Tray),
             vec![
-                Role::Copy,
-                Role::Save,
                 Role::RecordMkv,
                 Role::RecordGif,
                 Role::RecordWebp,
                 Role::Video,
-                Role::Cancel
+                Role::Cancel,
+                Role::Copy,
+                Role::Save
             ]
         );
         assert!(Overlay::Tray.shows_video());
@@ -3210,6 +3226,46 @@ mod region_actions {
         assert_eq!(
             super::opening_roles(Overlay::Screenshot),
             vec![Role::Cancel]
+        );
+    }
+
+    #[test]
+    fn utility_buttons_are_icon_only() {
+        for role in [
+            Role::Copy,
+            Role::Save,
+            Role::Video,
+            Role::Cancel,
+            Role::RecordMkv,
+            Role::RecordGif,
+            Role::RecordWebp,
+        ] {
+            assert!(
+                super::caption(role).is_none(),
+                "{role:?} still has a caption"
+            );
+            assert!(super::icon(role).is_some(), "{role:?} lost its icon");
+        }
+        assert!(super::caption(Role::Record).is_some());
+        assert_ne!(super::icon(Role::RecordMkv), super::icon(Role::RecordGif));
+        assert_ne!(super::icon(Role::RecordGif), super::icon(Role::RecordWebp));
+    }
+
+    #[test]
+    fn copy_is_green_and_cancel_is_red() {
+        use crate::theme;
+
+        assert_eq!(
+            super::button_fill(Role::Copy, true, false, None),
+            theme::COPY
+        );
+        assert_eq!(
+            super::button_fill(Role::Cancel, true, false, None),
+            theme::CANCEL
+        );
+        assert_eq!(
+            super::button_fill(Role::Record, true, true, None),
+            theme::ACCENT
         );
     }
 

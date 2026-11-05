@@ -25,6 +25,9 @@ pub const OVERLAY_INK: COLORREF = COLORREF(0x00f6f1e8);
 pub const OVERLAY_DISABLED: COLORREF = COLORREF(0x003c332a);
 pub const OVERLAY_DISABLED_INK: COLORREF = COLORREF(0x00a4988a);
 pub const OVERLAY_EDGE: COLORREF = COLORREF(0x00584a3a);
+/// The Copy action stands out in green; Cancel is red in every overlay.
+pub const COPY: COLORREF = COLORREF(0x003ca83a);
+pub const CANCEL: COLORREF = COLORREF(0x00323cd2);
 
 /// The small size label on the selection.
 pub const BADGE: COLORREF = COLORREF(0x00422e1c);
