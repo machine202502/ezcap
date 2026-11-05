@@ -176,6 +176,10 @@ fn grab_screen(rect: Rect, draw_cursor: bool) -> Result<Frame, String> {
         let bitmap = CreateDIBSection(screen, &bitmap_info, DIB_RGB_COLORS, &mut bits, None, 0)
             .map_err(|e| e.to_string())?;
         let old = SelectObject(memory, bitmap);
+        // CAPTUREBLT is left out on purpose: while the recording fallback calls
+        // BitBlt every frame, it makes the live pointer flicker on some systems.
+        // The pointer is drawn below. A layered window can be missing from this
+        // fallback frame; the normal Windows Graphics Capture frames still have it.
         BitBlt(
             memory,
             0,
@@ -185,7 +189,7 @@ fn grab_screen(rect: Rect, draw_cursor: bool) -> Result<Frame, String> {
             screen,
             rect.x,
             rect.y,
-            SRCCOPY | CAPTUREBLT,
+            SRCCOPY,
         )
         .map_err(|e| e.to_string())?;
         let len = rect.w as usize * rect.h as usize * 4;
