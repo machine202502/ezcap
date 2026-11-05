@@ -239,7 +239,7 @@ const SETTINGS: [Place; 48] = [
     p(ID_TRAY_AREA_GAIN_VALUE, 652, 607, 80, 26),
     p(ID_TRAY_AREA_CURSOR, 28, 648, 704, 26),
     p(ID_VIDEO_HEADING, 28, 696, 704, 24),
-    p(ID_TRAY_VIDEO_FORMAT, 28, 722, 228, 26),
+    p(ID_TRAY_VIDEO_FORMAT, 28, 722, 704, 26),
     p(ID_TRAY_VIDEO_FORMAT + 1, 264, 722, 228, 26),
     p(ID_TRAY_VIDEO_FORMAT + 2, 500, 722, 228, 26),
     p(ID_TRAY_VIDEO_PRESET, 28, 760, 346, 300),
@@ -678,13 +678,24 @@ impl Controls {
         } else {
             ID_TRAY_VIDEO_FORMAT
         };
-        for (i, text) in ["MKV", "GIF", "WebP"].iter().enumerate() {
+        if area {
+            for (i, text) in ["MKV", "GIF", "WebP"].iter().enumerate() {
+                self.create_control(
+                    w!("BUTTON"),
+                    text,
+                    WINDOW_STYLE(BS_OWNERDRAW as u32),
+                    WINDOW_EX_STYLE(0),
+                    base + i as i32,
+                    1,
+                );
+            }
+        } else {
             self.create_control(
-                w!("BUTTON"),
-                text,
-                WINDOW_STYLE(BS_OWNERDRAW as u32),
+                w!("STATIC"),
+                "Format: MKV",
+                WINDOW_STYLE(0),
                 WINDOW_EX_STYLE(0),
-                base + i as i32,
+                base,
                 1,
             );
         }
@@ -1051,14 +1062,19 @@ impl Controls {
         } else {
             (ID_TRAY_VIDEO_FORMAT, &settings.tray_video)
         };
-        let format_index = p.format.index();
+        let format_index = if area {
+            p.format.index()
+        } else {
+            Format::Mkv.index()
+        };
         let video = p.video[format_index];
         if area {
             self.tray_area_format_index = format_index;
         } else {
-            self.tray_video_format_index = format_index;
+            self.tray_video_format_index = Format::Mkv.index();
         }
-        self.select(base + 9, preset_index(p.format, video));
+        let format = if area { p.format } else { Format::Mkv };
+        self.select(base + 9, preset_index(format, video));
         self.select(base + 3, resolution_index(video.height));
         unsafe {
             // SAFETY: The target is a window this program created. Any pointer in the message addresses memory that outlives the call.
@@ -1273,7 +1289,7 @@ impl Controls {
         let format_index = if area {
             self.tray_area_format_index
         } else {
-            self.tray_video_format_index
+            Format::Mkv.index()
         };
         let format = Format::from_index(format_index);
         let fps = unsafe {
@@ -1281,19 +1297,20 @@ impl Controls {
             SendMessageW(self.get(base + 4), WM_USER, WPARAM(0), LPARAM(0)).0 as u32
         }
         .clamp(5, 60);
-        let mut profile = previous.clone();
-        profile.format = format;
-        profile.video[format_index] = VideoSettings {
+        let video = VideoSettings {
             height: resolution_value(self.selected(base + 3)),
             fps,
         };
+        let mut profile = previous.clone();
+        profile.format = if area { format } else { Format::Mkv };
+        profile.video[format_index] = video;
         profile.audio = self.audio_from(base + 6, base + 7, base + 8, &previous.audio);
         profile.cursor = self.checked(if area {
             ID_TRAY_AREA_CURSOR
         } else {
             ID_TRAY_VIDEO_CURSOR
         });
-        self.select(base + 9, preset_index(format, profile.video[format_index]));
+        self.select(base + 9, preset_index(format, video));
         profile
     }
 
@@ -1559,6 +1576,54 @@ pub fn draw_button(lparam: LPARAM, controls: &Controls) {
             None
         };
         if let Some((base, format_index)) = radio {
+            let selected = format_index == (id - base) as usize;
+            if base == ID_TRAY_AREA_FORMAT {
+                let parent = CreateSolidBrush(BACKGROUND);
+                FillRect(item.hDC, &item.rcItem, parent);
+                DeleteObject(parent);
+                let radius = (8 * controls.scale_percent as i32 / 100).max(4);
+                let fill = if selected { ACCENT } else { BACKGROUND };
+                let edge = if selected { ACCENT } else { MIST };
+                let brush = CreateSolidBrush(fill);
+                let pen = CreatePen(PS_SOLID, 1, edge);
+                let old_brush = SelectObject(item.hDC, brush);
+                let old_pen = SelectObject(item.hDC, pen);
+                RoundRect(
+                    item.hDC,
+                    item.rcItem.left,
+                    item.rcItem.top,
+                    item.rcItem.right,
+                    item.rcItem.bottom,
+                    radius,
+                    radius,
+                );
+                SelectObject(item.hDC, old_brush);
+                SelectObject(item.hDC, old_pen);
+                DeleteObject(brush);
+                DeleteObject(pen);
+                let mut text = vec![0u16; 256];
+                let len = GetWindowTextW(item.hwndItem, &mut text) as usize;
+                text.truncate(len);
+                let mut rect = item.rcItem;
+                SetBkMode(item.hDC, TRANSPARENT);
+                SetTextColor(
+                    item.hDC,
+                    if selected {
+                        crate::theme::ON_ACCENT
+                    } else {
+                        TEXT
+                    },
+                );
+                let old = SelectObject(item.hDC, controls.font);
+                DrawTextW(
+                    item.hDC,
+                    &mut text,
+                    &mut rect,
+                    DT_CENTER | DT_VCENTER | DT_SINGLELINE,
+                );
+                SelectObject(item.hDC, old);
+                return;
+            }
             let brush = CreateSolidBrush(BACKGROUND);
             FillRect(item.hDC, &item.rcItem, brush);
             DeleteObject(brush);
@@ -1569,7 +1634,7 @@ pub fn draw_button(lparam: LPARAM, controls: &Controls) {
             SelectObject(item.hDC, outer);
             Ellipse(item.hDC, x - radius, y - radius, x + radius, y + radius);
             DeleteObject(outer);
-            if format_index == (id - base) as usize {
+            if selected {
                 let inner_radius = (radius / 2).max(2);
                 let inner = CreateSolidBrush(TEXT);
                 SelectObject(item.hDC, inner);
@@ -1823,6 +1888,25 @@ mod layout_tests {
         );
         assert!(super::is_mic_gain(super::ID_TRAY_AREA_GAIN));
         assert!(super::is_mic_gain_value(super::ID_TRAY_AREA_GAIN_VALUE));
+    }
+
+    #[test]
+    fn tray_area_defaults_are_quality_for_mkv_and_balance_for_animations() {
+        use crate::media::Format;
+
+        let area = crate::settings::Settings::default().tray_area;
+        assert_eq!(
+            super::preset_index(Format::Mkv, area.video[Format::Mkv.index()]),
+            0
+        );
+        assert_eq!(
+            super::preset_index(Format::Gif, area.video[Format::Gif.index()]),
+            1
+        );
+        assert_eq!(
+            super::preset_index(Format::Webp, area.video[Format::Webp.index()]),
+            1
+        );
     }
 
     #[test]

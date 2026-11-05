@@ -42,17 +42,21 @@ impl CaptureSettings {
         }
     }
 
-    pub fn profile(&self) -> crate::media::Profile {
+    fn profile_for(&self, format: Format) -> crate::media::Profile {
         crate::media::Profile {
-            format: self.format,
-            video: self.video[self.format.index()],
+            format,
+            video: self.video[format.index()],
             audio: self.audio.clone(),
             cursor: self.cursor,
         }
     }
 
     fn as_recording(&self) -> RecordingProfile {
-        let picture = self.profile();
+        self.as_recording_for(self.format)
+    }
+
+    fn as_recording_for(&self, format: Format) -> RecordingProfile {
+        let picture = self.profile_for(format);
         RecordingProfile::Picture {
             format: picture.format,
             video: picture.video,
@@ -332,6 +336,10 @@ impl Settings {
         settings.ui.cursor = registry.dword("ui_cursor", 1) != 0;
         load_profile(&registry, "area", &mut settings.tray_area);
         load_profile(&registry, "video", &mut settings.tray_video);
+        // Tray video has no format choice anymore: it is always MKV. Tray area
+        // remembers one picture setting per format; the three toggle buttons in
+        // Settings choose which one is being edited.
+        settings.tray_video.format = Format::Mkv;
         load_audio(&registry, "audio", &mut settings.tray_audio);
         settings.autostart = registry.dword("autostart", 0) != 0;
         settings.start_minimized = registry.dword("start_minimized", 0) != 0;
@@ -355,7 +363,19 @@ impl Settings {
         match source {
             ProfileRef::Capture => self.ui.as_recording(),
             ProfileRef::Area => self.tray_area.as_recording(),
-            ProfileRef::Video => self.tray_video.as_recording(),
+            // Tray video has no format choice; an old saved format must not leak in.
+            ProfileRef::Video => self.tray_video.as_recording_for(Format::Mkv),
+            ProfileRef::Audio => RecordingProfile::Audio(self.tray_audio.clone()),
+        }
+    }
+
+    /// The same profile with its picture forced to `format` for one recording. The
+    /// saved format and the per-format picture settings stay where they are.
+    pub fn recording_as(&self, source: ProfileRef, format: Format) -> RecordingProfile {
+        match source {
+            ProfileRef::Capture => self.ui.as_recording_for(format),
+            ProfileRef::Area => self.tray_area.as_recording_for(format),
+            ProfileRef::Video => self.tray_video.as_recording_for(Format::Mkv),
             ProfileRef::Audio => RecordingProfile::Audio(self.tray_audio.clone()),
         }
     }
@@ -364,6 +384,20 @@ impl Settings {
     /// so asking it for one still returns audio only.
     pub fn applied(&self, source: ProfileRef, picture: bool) -> RecordingProfile {
         let profile = self.recording(source);
+        if picture {
+            profile
+        } else {
+            profile.without_picture()
+        }
+    }
+
+    pub fn applied_as(
+        &self,
+        source: ProfileRef,
+        picture: bool,
+        format: Format,
+    ) -> RecordingProfile {
+        let profile = self.recording_as(source, format);
         if picture {
             profile
         } else {
@@ -637,6 +671,64 @@ mod recording_profiles {
         assert!(capture.cursor);
         assert!(!area.cursor);
         assert!(video.cursor);
+    }
+
+    #[test]
+    fn forcing_a_format_uses_that_formats_picture_without_saving_it() {
+        let mut settings = Settings::default();
+        settings.tray_area.format = Format::Gif;
+        settings.tray_area.video[Format::Gif.index()] = picture(480, 15);
+        settings.tray_area.video[Format::Mkv.index()] = picture(1080, 60);
+        settings.tray_area.audio.gain = 120;
+        settings.tray_area.cursor = false;
+
+        let (forced, audio_only) = settings
+            .applied_as(ProfileRef::Area, true, Format::Mkv)
+            .session();
+        assert!(!audio_only);
+        assert_eq!(forced.format, Format::Mkv);
+        assert_eq!(forced.video, picture(1080, 60));
+        assert_eq!(forced.audio.gain, 120);
+        assert!(!forced.cursor);
+
+        assert_eq!(settings.tray_area.format, Format::Gif);
+        assert_eq!(
+            settings.tray_area.video[Format::Mkv.index()],
+            picture(1080, 60)
+        );
+    }
+
+    #[test]
+    fn tray_video_records_mkv_even_with_a_stale_saved_format() {
+        let mut settings = Settings::default();
+        settings.tray_video.format = Format::Gif;
+        settings.tray_video.video[Format::Mkv.index()] = picture(1080, 60);
+
+        let (profile, audio_only) = settings.applied(ProfileRef::Video, true).session();
+        assert!(!audio_only);
+        assert_eq!(profile.format, Format::Mkv);
+        assert_eq!(profile.video, picture(1080, 60));
+    }
+
+    #[test]
+    fn every_area_format_keeps_its_own_picture() {
+        let mut settings = Settings::default();
+        settings.tray_area.video[Format::Mkv.index()] = picture(1080, 60);
+        settings.tray_area.video[Format::Gif.index()] = picture(480, 15);
+        settings.tray_area.video[Format::Webp.index()] = picture(720, 25);
+
+        for (format, expected) in [
+            (Format::Mkv, picture(1080, 60)),
+            (Format::Gif, picture(480, 15)),
+            (Format::Webp, picture(720, 25)),
+        ] {
+            let (profile, audio_only) = settings
+                .applied_as(ProfileRef::Area, true, format)
+                .session();
+            assert!(!audio_only);
+            assert_eq!(profile.format, format);
+            assert_eq!(profile.video, expected);
+        }
     }
 
     #[test]

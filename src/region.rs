@@ -1,5 +1,5 @@
 use crate::geom::{self, Panel};
-use crate::media::{self, Frame, Rect};
+use crate::media::{self, Format, Frame, Rect};
 use crate::theme;
 use std::path::PathBuf;
 use windows::core::{w, PCWSTR};
@@ -32,6 +32,9 @@ pub enum Role {
     Copy,
     Save,
     Record,
+    RecordMkv,
+    RecordGif,
+    RecordWebp,
     Video,
     Cancel,
     Swatch,
@@ -181,7 +184,8 @@ struct Button {
 
 pub enum Outcome {
     Cancel,
-    Record(Rect),
+    /// A recording of the selection, optionally forcing the picture format.
+    Record(Rect, Option<Format>),
     Screen,
     Saved(PathBuf),
 }
@@ -432,7 +436,9 @@ impl Region {
         match role {
             Role::Undo | Role::Delete => !self.shapes.is_empty(),
             Role::Redo => !self.redo.is_empty(),
-            Role::Record | Role::Video => self.allow_record,
+            Role::Record | Role::RecordMkv | Role::RecordGif | Role::RecordWebp | Role::Video => {
+                self.allow_record
+            }
             _ => true,
         }
     }
@@ -494,7 +500,31 @@ impl Region {
             Role::Save => self.save(true),
             Role::Record => {
                 if let Some(selection) = self.selected() {
-                    self.finish(Outcome::Record(selection.output(self.monitor)));
+                    self.finish(Outcome::Record(selection.output(self.monitor), None));
+                }
+            }
+            Role::RecordMkv => {
+                if let Some(selection) = self.selected() {
+                    self.finish(Outcome::Record(
+                        selection.output(self.monitor),
+                        Some(Format::Mkv),
+                    ));
+                }
+            }
+            Role::RecordGif => {
+                if let Some(selection) = self.selected() {
+                    self.finish(Outcome::Record(
+                        selection.output(self.monitor),
+                        Some(Format::Gif),
+                    ));
+                }
+            }
+            Role::RecordWebp => {
+                if let Some(selection) = self.selected() {
+                    self.finish(Outcome::Record(
+                        selection.output(self.monitor),
+                        Some(Format::Webp),
+                    ));
                 }
             }
             Role::Video => self.finish(Outcome::Screen),
@@ -564,7 +594,7 @@ impl Region {
                 self.save(false);
             } else if self.allow_record {
                 if let Some(selection) = self.selected() {
-                    self.finish(Outcome::Record(selection.output(self.monitor)));
+                    self.finish(Outcome::Record(selection.output(self.monitor), None));
                 }
             }
         } else if let Some(mut selection) = self.selected() {
@@ -2322,6 +2352,7 @@ fn icon(role: Role) -> Option<&'static str> {
         Role::Copy => "\u{E1CA}",
         Role::Save => "\u{E248}",
         Role::Record => "\u{E69A}",
+        Role::RecordMkv | Role::RecordGif | Role::RecordWebp => "\u{E69A}",
         Role::Video => "\u{E6A0}",
         Role::Cancel => "\u{E4F6}",
         _ => return None,
@@ -2333,6 +2364,9 @@ fn caption(role: Role) -> Option<&'static str> {
         Role::Copy => Some("Copy"),
         Role::Save => Some("Save…"),
         Role::Record => Some("Record"),
+        Role::RecordMkv => Some("MKV"),
+        Role::RecordGif => Some("GIF"),
+        Role::RecordWebp => Some("WebP"),
         Role::Video => Some("Video"),
         Role::Cancel => Some("Cancel"),
         _ => None,
@@ -2351,7 +2385,11 @@ fn draw_button(dc: HDC, region: &Region, button: &Button) {
             | (Role::Text, Tool::Text)
     );
     let enabled = region.role_enabled(button.role);
-    let primary = selected || button.role == Role::Record;
+    let primary = selected
+        || matches!(
+            button.role,
+            Role::Record | Role::RecordMkv | Role::RecordGif | Role::RecordWebp
+        );
     let fill = if let Some(swatch) = button.swatch {
         theme::SWATCHES[swatch]
     } else if !enabled {
@@ -2899,9 +2937,11 @@ fn action_roles(overlay: Overlay) -> Vec<Role> {
     if overlay.annotates() {
         roles.extend([Role::Copy, Role::Save]);
     }
-    roles.push(Role::Record);
     if overlay.shows_video() {
+        roles.extend([Role::RecordMkv, Role::RecordGif, Role::RecordWebp]);
         roles.push(Role::Video);
+    } else if overlay == Overlay::Capture {
+        roles.push(Role::Record);
     }
     roles.push(Role::Cancel);
     roles
@@ -3136,7 +3176,7 @@ mod region_actions {
     use super::{action_roles, suggested_image_path, Role};
 
     #[test]
-    fn video_is_only_offered_when_the_area_was_opened_from_the_tray() {
+    fn record_is_plain_in_the_ui_and_split_by_format_in_the_tray() {
         use super::Overlay;
 
         assert_eq!(
@@ -3145,13 +3185,22 @@ mod region_actions {
         );
         assert_eq!(
             action_roles(Overlay::Screenshot),
-            vec![Role::Copy, Role::Save, Role::Record, Role::Cancel]
+            vec![Role::Copy, Role::Save, Role::Cancel]
         );
         assert!(!Overlay::Capture.shows_video());
         assert!(!Overlay::Screenshot.shows_video());
-        let tray = action_roles(Overlay::Tray);
-        let record = tray.iter().position(|role| *role == Role::Record).unwrap();
-        assert_eq!(tray[record + 1], Role::Video);
+        assert_eq!(
+            action_roles(Overlay::Tray),
+            vec![
+                Role::Copy,
+                Role::Save,
+                Role::RecordMkv,
+                Role::RecordGif,
+                Role::RecordWebp,
+                Role::Video,
+                Role::Cancel
+            ]
+        );
         assert!(Overlay::Tray.shows_video());
         assert_eq!(
             super::opening_roles(Overlay::Tray),

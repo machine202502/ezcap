@@ -569,7 +569,7 @@ impl App {
         for (id, text, glyph) in [
             (ID_TRAY_AREA, "Select area", MenuGlyph::Area),
             (ID_TRAY_SHOT, "Screenshot screen", MenuGlyph::Shot),
-            (ID_TRAY_VIDEO, "Capture screen", MenuGlyph::Video),
+            (ID_TRAY_VIDEO, "Capture video", MenuGlyph::Video),
             (ID_TRAY_AUDIO, "Capture audio", MenuGlyph::Audio),
             (ID_TRAY_STOP, "Stop capture", MenuGlyph::Stop),
         ] {
@@ -806,7 +806,7 @@ impl App {
                 } else {
                     self.pending_resilient = true;
                     let (source, take) = start_plan(StartPlace::CaptureSource);
-                    self.start_capture(source, take, Some(rect), true, false);
+                    self.start_capture(source, take, Some(rect), true, false, None);
                 }
             }
             capture::Chosen::Window(rect) => {
@@ -818,7 +818,7 @@ impl App {
                 } else {
                     self.pending_window = true;
                     let (source, take) = start_plan(StartPlace::CaptureSource);
-                    self.start_capture(source, take, Some(rect), true, false);
+                    self.start_capture(source, take, Some(rect), true, false, None);
                 }
             }
         }
@@ -875,11 +875,11 @@ impl App {
             StartPlace::CaptureRegion => self.open_region(place, true),
             StartPlace::CaptureScreen | StartPlace::CaptureAudio => {
                 let (source, take) = start_plan(place);
-                self.start_capture(source, take, None, true, false);
+                self.start_capture(source, take, None, true, false, None);
             }
             StartPlace::TrayVideo | StartPlace::TrayAudio => {
                 let (source, take) = start_plan(place);
-                self.start_capture(source, take, None, false, false);
+                self.start_capture(source, take, None, false, false, None);
             }
         }
     }
@@ -922,13 +922,13 @@ impl App {
     fn region_done(&mut self) {
         let resume = self.mode == Mode::Recording || self.mode == Mode::Saving;
         match region::take_outcome() {
-            Some(region::Outcome::Record(rect)) => {
+            Some(region::Outcome::Record(rect, format)) => {
                 if resume {
                     return;
                 }
                 self.mode = Mode::Idle;
                 let (source, take) = start_plan(place_for_source(self.region_source));
-                self.start_capture(source, take, Some(rect), self.hide_region, true);
+                self.start_capture(source, take, Some(rect), self.hide_region, true, format);
             }
             Some(region::Outcome::Screen) => {
                 if resume {
@@ -936,7 +936,7 @@ impl App {
                 }
                 self.mode = Mode::Idle;
                 let (source, take) = start_plan(area_video_place());
-                self.start_capture(source, take, None, self.hide_region, false);
+                self.start_capture(source, take, None, self.hide_region, false, None);
             }
             Some(region::Outcome::Saved(path)) => {
                 if !resume {
@@ -966,6 +966,19 @@ impl App {
         }
     }
 
+    fn recording_for(
+        &self,
+        source: ProfileRef,
+        take: Take,
+        force_format: Option<Format>,
+    ) -> settings::RecordingProfile {
+        let picture = matches!(take, Take::Picture);
+        match force_format {
+            Some(format) => self.settings.applied_as(source, picture, format),
+            None => self.settings.applied(source, picture),
+        }
+    }
+
     fn start_capture(
         &mut self,
         source: ProfileRef,
@@ -973,12 +986,13 @@ impl App {
         rect: Option<Rect>,
         hide: bool,
         region: bool,
+        force_format: Option<Format>,
     ) {
         if self.mode != Mode::Idle || self.session.is_some() {
             return;
         }
         self.controls.read_ui(&mut self.settings);
-        let recording = self.settings.applied(source, matches!(take, Take::Picture));
+        let recording = self.recording_for(source, take, force_format);
         if recording.video().is_none() && !recording.audio().system && !recording.audio().microphone
         {
             self.error("Enable System audio or Microphone before capturing audio");

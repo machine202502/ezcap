@@ -127,8 +127,10 @@ fn register_test_classes() {
 }
 
 fn synthetic_frame() -> Frame {
-    let width = 640;
-    let height = 480;
+    synthetic_frame_sized(640, 480)
+}
+
+fn synthetic_frame_sized(width: usize, height: usize) -> Frame {
     let mut data = Vec::with_capacity(width * height * 4);
     for y in 0..height {
         for x in 0..width {
@@ -234,20 +236,7 @@ fn main_window_snapshots_at_scale_one() {
         ),
         (480, 30)
     );
-    assert_eq!(
-        (
-            app().settings.tray_area.video[1].height,
-            app().settings.tray_area.video[1].fps
-        ),
-        (480, 30)
-    );
-    assert_eq!(
-        (
-            app().settings.tray_video.video[0].height,
-            app().settings.tray_video.video[0].fps
-        ),
-        (1080, 60)
-    );
+    assert_eq!(app().settings.tray_video.format, Format::Mkv);
     app().settings.ui.audio.device = "{missing-device}".into();
     app().settings.tray_area.audio.device = "{missing-device}".into();
     app().settings.tray_video.audio.device = "{missing-device}".into();
@@ -281,51 +270,28 @@ fn main_window_snapshots_at_scale_one() {
             SendMessageW(app().hwnd, WM_HSCROLL, WPARAM(0), LPARAM(slider.0 as isize));
         }
     };
+    // Tray area has three format toggles; each remembers its own picture.
+    let mut area_pictures = [app().settings.tray_area.video[0]; 3];
+    for (offset, fps) in [30, 15, 25].into_iter().enumerate() {
+        app().command(ID_TRAY_AREA_FORMAT + offset as i32, 0);
+        app().controls.select(ID_TRAY_AREA_PRESET, 2);
+        app().command(ID_TRAY_AREA_PRESET, CBN_SELCHANGE as u16);
+        set_fps(ID_TRAY_AREA_FORMAT + 4, fps);
+        app().command(ID_REFRESH, 0);
+        area_pictures[offset] = app().settings.tray_area.video[offset];
+        assert_eq!(area_pictures[offset].fps, fps as u32);
+    }
     app().command(ID_TRAY_AREA_FORMAT, 0);
-    app().controls.select(ID_TRAY_AREA_PRESET, 2);
-    app().command(ID_TRAY_AREA_PRESET, CBN_SELCHANGE as u16);
-    app().command(ID_TRAY_AREA_FORMAT + 1, 0);
-    app().controls.select(ID_TRAY_AREA_PRESET, 2);
-    app().command(ID_TRAY_AREA_PRESET, CBN_SELCHANGE as u16);
-    set_fps(ID_TRAY_AREA_FORMAT + 4, 15);
-    app().command(ID_TRAY_AREA_FORMAT + 2, 0);
-    set_fps(ID_TRAY_AREA_FORMAT + 4, 25);
-    app().command(ID_TRAY_AREA_FORMAT, 0);
-    assert_eq!(
-        (
-            app().controls.selected(ID_TRAY_AREA_FORMAT + 3),
-            app().settings.tray_area.video[0].fps
-        ),
-        (3, 30)
-    );
-    app().command(ID_TRAY_AREA_FORMAT + 1, 0);
-    assert_eq!(
-        (
-            app().controls.selected(ID_TRAY_AREA_FORMAT + 3),
-            app().settings.tray_area.video[1].fps
-        ),
-        (5, 15)
-    );
-    app().command(ID_TRAY_AREA_FORMAT + 2, 0);
-    assert_eq!(
-        (
-            app().controls.selected(ID_TRAY_AREA_FORMAT + 3),
-            app().settings.tray_area.video[2].fps
-        ),
-        (4, 25)
-    );
-    app().command(ID_TRAY_VIDEO_FORMAT + 2, 0);
+
+    // Tray video has no format choice and is always MKV.
+    app().controls.select(ID_TRAY_VIDEO_PRESET, 2);
+    app().command(ID_TRAY_VIDEO_PRESET, CBN_SELCHANGE as u16);
     set_fps(ID_TRAY_VIDEO_FORMAT + 4, 20);
-    app().command(ID_TRAY_VIDEO_FORMAT, 0);
-    assert_eq!(
-        (
-            app().controls.selected(ID_TRAY_VIDEO_FORMAT + 3),
-            app().settings.tray_video.video[0].fps
-        ),
-        (2, 60)
-    );
-    app().command(ID_TRAY_VIDEO_FORMAT + 2, 0);
-    assert_eq!(app().settings.tray_video.video[2].fps, 20);
+    app().command(ID_REFRESH, 0);
+    assert_eq!(app().settings.tray_video.format, Format::Mkv);
+    assert_eq!(app().settings.tray_video.video[Format::Mkv.index()].fps, 20);
+
+    // The Capture tab keeps its per-format picture settings.
     app().controls.show_page(0);
     app().command(ID_FORMAT + 1, 0);
     app().controls.select(ID_PRESET, 0);
@@ -367,79 +333,55 @@ fn main_window_snapshots_at_scale_one() {
         (3, 40)
     );
     let saved = Settings::load();
-    assert_eq!(
-        (
-            saved.tray_area.video[0].height,
-            saved.tray_area.video[0].fps
-        ),
-        (720, 30)
-    );
-    assert_eq!(
-        (
-            saved.tray_area.video[1].height,
-            saved.tray_area.video[1].fps
-        ),
-        (360, 15)
-    );
-    assert_eq!(
-        (
-            saved.tray_area.video[2].height,
-            saved.tray_area.video[2].fps
-        ),
-        (480, 25)
-    );
-    assert_eq!(
-        (
-            saved.tray_video.video[0].height,
-            saved.tray_video.video[0].fps
-        ),
-        (1080, 60)
-    );
-    assert_eq!(
-        (
-            saved.tray_video.video[2].height,
-            saved.tray_video.video[2].fps
-        ),
-        (480, 20)
-    );
+    assert_eq!(saved.tray_area.video, area_pictures);
+    assert_eq!(saved.tray_video.format, Format::Mkv);
+    assert_eq!(saved.tray_video.video[Format::Mkv.index()].fps, 20);
     assert_eq!((saved.ui.video[1].height, saved.ui.video[1].fps), (720, 50));
     assert_eq!((saved.ui.video[2].height, saved.ui.video[2].fps), (720, 40));
     app().controls.show_page(1);
-    app().command(ID_TRAY_AREA_FORMAT + 2, 0);
+    app().command(ID_TRAY_AREA_FORMAT, 0);
     app().controls.select(ID_TRAY_AREA_FORMAT + 3, 1);
-    app().command(ID_TRAY_AREA_FORMAT + 3, 0);
+    app().command(ID_TRAY_AREA_FORMAT + 3, CBN_SELCHANGE as u16);
     set_fps(ID_TRAY_AREA_FORMAT + 4, 45);
     app().controls.check(ID_TRAY_AREA_FORMAT + 6, false);
     app().command(ID_TRAY_AREA_FORMAT + 6, 0);
     set_fps(ID_TRAY_AREA_GAIN, 180);
-    app().command(ID_TRAY_VIDEO_FORMAT + 1, 0);
     app().controls.select(ID_TRAY_VIDEO_PRESET, 2);
     app().command(ID_TRAY_VIDEO_PRESET, CBN_SELCHANGE as u16);
+    set_fps(ID_TRAY_VIDEO_FORMAT + 4, 40);
     app().controls.check(ID_TRAY_VIDEO_FORMAT + 7, false);
     app().command(ID_TRAY_VIDEO_FORMAT + 7, 0);
     set_fps(ID_TRAY_VIDEO_GAIN, 40);
     app().controls.check(ID_TRAY_AUDIO_SYSTEM, false);
     app().command(ID_TRAY_AUDIO_SYSTEM, 0);
     set_fps(ID_TRAY_AUDIO_GAIN, 250);
+    app().command(ID_REFRESH, 0);
+    let area_video = app().settings.tray_area.video[0];
     assert_eq!(
         (
-            app().settings.tray_area.format,
-            app().settings.tray_area.video[2].height,
-            app().settings.tray_area.video[2].fps,
+            area_video.height,
+            area_video.fps,
             app().settings.tray_area.audio.system,
             app().settings.tray_area.audio.gain
         ),
-        (Format::Webp, 1440, 45, false, 180)
+        (1440, 45, false, 180)
+    );
+    assert_eq!(
+        app().settings.tray_area.video[Format::Gif.index()],
+        area_pictures[1]
+    );
+    assert_eq!(
+        app().settings.tray_area.video[Format::Webp.index()],
+        area_pictures[2]
     );
     assert_eq!(
         (
             app().settings.tray_video.format,
-            app().settings.tray_video.video[1].height,
-            app().settings.tray_video.video[1].fps,
+            app().settings.tray_video.video[Format::Mkv.index()].fps,
             app().settings.tray_video.audio.microphone,
             app().settings.tray_video.audio.gain
         ),
-        (Format::Gif, 360, 30, false, 40)
+        (Format::Mkv, 40, false, 40)
     );
     assert_eq!(
         (
@@ -485,7 +427,7 @@ fn region_snapshots_on_a_fake_monitor() {
     media::init();
     register_test_classes();
     for scale in [100] {
-        region::open_with_frame(synthetic_frame(), scale).unwrap();
+        region::open_with_frame(synthetic_frame_sized(1366, 768), scale).unwrap();
         region::set_overlay(region::Overlay::Tray);
         region::hide_selection();
         std::thread::sleep(std::time::Duration::from_millis(40));
@@ -498,7 +440,9 @@ fn region_snapshots_on_a_fake_monitor() {
         for role in [
             region::Role::Copy,
             region::Role::Save,
-            region::Role::Record,
+            region::Role::RecordMkv,
+            region::Role::RecordGif,
+            region::Role::RecordWebp,
             region::Role::Video,
             region::Role::Cancel,
         ] {
@@ -1194,10 +1138,10 @@ fn recording_keeps_screenshot_controls_and_blocks_another_capture() {
         "the tray does not hide the window"
     );
     region::select_sample();
-    region::press_role(region::Role::Record);
+    region::press_role(region::Role::RecordMkv);
     assert!(
         !region::has_outcome(),
-        "Record stays off during a recording"
+        "the format buttons stay off during a recording"
     );
     region::cancel();
     app().region_done();
@@ -1209,10 +1153,106 @@ fn recording_keeps_screenshot_controls_and_blocks_another_capture() {
 }
 
 #[test]
+fn the_tray_format_buttons_ask_for_their_format() {
+    let _ui = serialize_ui();
+    register_test_classes();
+    for (role, expected) in [
+        (region::Role::RecordMkv, media::Format::Mkv),
+        (region::Role::RecordGif, media::Format::Gif),
+        (region::Role::RecordWebp, media::Format::Webp),
+    ] {
+        region::open_with_frame(synthetic_frame(), 100).unwrap();
+        region::set_overlay(region::Overlay::Tray);
+        region::select_sample();
+        region::press_role(role);
+        match region::take_outcome() {
+            Some(region::Outcome::Record(_, Some(format))) => assert_eq!(format, expected),
+            _ => panic!("{role:?} did not request {expected:?}"),
+        }
+    }
+}
+
+#[test]
+fn the_tray_overlay_applies_the_saved_picture_for_each_format() {
+    let _ui = serialize_ui();
+    register_test_classes();
+    let picture = |format| match format {
+        Format::Mkv => media::VideoSettings {
+            height: 1080,
+            fps: 60,
+        },
+        Format::Gif => media::VideoSettings {
+            height: 720,
+            fps: 30,
+        },
+        Format::Webp => media::VideoSettings {
+            height: 480,
+            fps: 15,
+        },
+    };
+    for format in [Format::Mkv, Format::Gif, Format::Webp] {
+        app().settings.tray_area.video[format.index()] = picture(format);
+    }
+    app().settings.tray_area.audio.gain = 120;
+    app().settings.tray_area.cursor = false;
+
+    for (role, format) in [
+        (region::Role::RecordMkv, Format::Mkv),
+        (region::Role::RecordGif, Format::Gif),
+        (region::Role::RecordWebp, Format::Webp),
+    ] {
+        region::open_with_frame(synthetic_frame(), 100).unwrap();
+        region::set_overlay(region::Overlay::Tray);
+        region::select_sample();
+        region::press_role(role);
+        let Some(region::Outcome::Record(_, Some(requested))) = region::take_outcome() else {
+            panic!("{role:?} did not request a recording");
+        };
+        assert_eq!(requested, format);
+        let (profile, audio_only) = app()
+            .recording_for(ProfileRef::Area, Take::Picture, Some(requested))
+            .session();
+        assert!(!audio_only);
+        assert_eq!(profile.format, format);
+        assert_eq!(profile.video, picture(format));
+        assert_eq!(profile.audio.gain, 120);
+        assert!(!profile.cursor);
+    }
+}
+
+#[test]
+fn selecting_an_area_in_the_capture_tab_waits_for_record() {
+    let _ui = serialize_ui();
+    register_test_classes();
+    region::open_with_frame(synthetic_frame(), 100).unwrap();
+    region::set_overlay(region::Overlay::Capture);
+    region::hide_selection();
+    let overlay = region::test_hwnd();
+    unsafe {
+        // SAFETY: The target is the overlay this test created. The messages carry no pointers.
+        SendMessageW(
+            overlay,
+            WM_LBUTTONDOWN,
+            WPARAM(0),
+            LPARAM(150 | (250 << 16)),
+        );
+        SendMessageW(overlay, WM_MOUSEMOVE, WPARAM(0), LPARAM(180 | (270 << 16)));
+        SendMessageW(overlay, WM_LBUTTONUP, WPARAM(0), LPARAM(180 | (270 << 16)));
+    }
+    assert!(!region::has_outcome(), "the selection must wait for Record");
+    region::press_role(region::Role::Record);
+    match region::take_outcome() {
+        Some(region::Outcome::Record(_, None)) => {}
+        _ => panic!("Record did not start the area recording"),
+    }
+}
+
+#[test]
 fn record_stays_unavailable_while_a_capture_is_running() {
     let _ui = serialize_ui();
     register_test_classes();
     region::open_with_frame(synthetic_frame(), 100).unwrap();
+    region::set_overlay(region::Overlay::Capture);
     region::set_record_allowed(false);
     region::press_role(region::Role::Record);
     assert!(
