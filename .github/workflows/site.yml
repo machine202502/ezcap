@@ -41,24 +41,43 @@ jobs:
           tag=$(cat /tmp/tag.txt)
           version=${tag#v}
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Release $tag"
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name'
           mkdir -p /tmp/ezcap-release
           cd /tmp/ezcap-release
-          for kind in setup zip; do
-            if [ "$kind" = setup ]; then pattern='-setup\.exe$'; else pattern='windows-x64\.zip$'; fi
-            url=$(gh release view --repo "$GITHUB_REPOSITORY" --json assets \
-              --jq ".assets[] | select(.name | test(\"$pattern\")) | .browserDownloadUrl" | head -1)
-            if [ -z "$url" ]; then
-              echo "Missing $kind asset in $tag" >&2
+          asset() {
+            gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
+              --jq "[.assets[] | select(.name | endswith(\"$1\"))][0].$2 // \"\""
+          }
+          digest_hex() {
+            local digest="$1"
+            case "$digest" in
+              sha256:*) printf '%s' "${digest#sha256:}" ;;
+              *) printf '' ;;
+            esac
+          }
+          fill_asset() {
+            local suffix="$1" key="$2"
+            local name url digest hash size
+            name=$(asset "$suffix" name)
+            if [ -z "$name" ]; then
+              echo "Missing $suffix in $tag" >&2
               exit 1
             fi
-            curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -o "$kind" "$url"
-          done
-          {
-            echo "setup_hash=$(sha256sum setup | cut -d' ' -f1)"
-            echo "zip_hash=$(sha256sum zip | cut -d' ' -f1)"
-            echo "setup_size=$(awk -v b="$(stat -c %s setup)" 'BEGIN{printf "%.1f", b/1048576}')"
-            echo "zip_size=$(awk -v b="$(stat -c %s zip)" 'BEGIN{printf "%.1f", b/1048576}')"
-          } >> "$GITHUB_OUTPUT"
+            url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/${name}"
+            digest=$(asset "$suffix" digest)
+            hash=$(digest_hex "$digest")
+            curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -o "$key" "$url"
+            size=$(awk -v b="$(stat -c %s "$key")" 'BEGIN{printf "%.1f", b/1048576}')
+            if [ -z "$hash" ]; then
+              hash=$(sha256sum "$key" | cut -d' ' -f1)
+            fi
+            echo "${key}_hash=$hash" >> "$GITHUB_OUTPUT"
+            echo "${key}_size=$size" >> "$GITHUB_OUTPUT"
+            echo "$name $size MB $hash"
+          }
+          fill_asset 'windows-x64.zip' zip
+          fill_asset '-setup.exe' setup
 
       - name: Fill release data into the site
         if: steps.release.outputs.version != ''
