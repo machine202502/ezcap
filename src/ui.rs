@@ -1,3 +1,4 @@
+use crate::i18n::{tr, trf};
 use crate::{media, wide, AudioSettings, CaptureSettings, ProfileRef, Settings};
 use media::{Format, VideoSettings};
 use windows::core::{w, PCWSTR};
@@ -46,6 +47,121 @@ pub enum HistoryClick {
 
 pub fn history_id(id: i32) -> bool {
     (ID_HISTORY..ID_HISTORY + HISTORY_COUNT).contains(&id)
+}
+
+/// Trackbars are drawn here so their thumb matches the accent instead of the
+/// system blue. The control reports its parts through NM_CUSTOMDRAW.
+pub fn paint_trackbar(cd: &mut NMCUSTOMDRAW) -> LRESULT {
+    unsafe {
+        // SAFETY: The struct comes from the trackbar's NM_CUSTOMDRAW, and the
+        // HWND in it is a control this window owns.
+
+        if cd.dwDrawStage == CDDS_PREPAINT {
+            return LRESULT(CDRF_NOTIFYITEMDRAW as isize);
+        }
+        if cd.dwDrawStage != CDDS_ITEMPREPAINT {
+            return LRESULT(CDRF_DODEFAULT as isize);
+        }
+        let hwnd = cd.hdr.hwndFrom;
+        let enabled = IsWindowEnabled(hwnd).as_bool();
+        let height = cd.rc.bottom - cd.rc.top;
+        let middle = cd.rc.top + height / 2;
+        match cd.dwItemSpec as u32 {
+            TBCD_CHANNEL => {
+                let groove = (4 * 100 / 100).max(3);
+                let brush = CreateSolidBrush(if enabled { MIST } else { BACKGROUND });
+                let pen = CreatePen(PS_SOLID, 1, if enabled { MIST } else { MIST });
+                let old_brush = SelectObject(cd.hdc, brush);
+                let old_pen = SelectObject(cd.hdc, pen);
+                RoundRect(
+                    cd.hdc,
+                    cd.rc.left,
+                    middle - groove / 2,
+                    cd.rc.right,
+                    middle + groove / 2 + 1,
+                    4,
+                    4,
+                );
+                let pos = SendMessageW(hwnd, WM_USER, WPARAM(0), LPARAM(0)).0 as i32;
+                let min = SendMessageW(hwnd, TBM_GETRANGEMIN, WPARAM(0), LPARAM(0)).0 as i32;
+                let max = SendMessageW(hwnd, TBM_GETRANGEMAX, WPARAM(0), LPARAM(0)).0 as i32;
+                let span = (max - min).max(1);
+                let width = (cd.rc.right - cd.rc.left).max(1);
+                let fill_right = cd.rc.left + (pos - min) * width / span;
+                let fill = CreateSolidBrush(if enabled { ACCENT } else { DISABLED });
+                SelectObject(cd.hdc, fill);
+                RoundRect(
+                    cd.hdc,
+                    cd.rc.left,
+                    middle - groove / 2,
+                    fill_right,
+                    middle + groove / 2 + 1,
+                    4,
+                    4,
+                );
+                SelectObject(cd.hdc, old_brush);
+                SelectObject(cd.hdc, old_pen);
+                DeleteObject(brush);
+                DeleteObject(pen);
+                DeleteObject(fill);
+                LRESULT(CDRF_SKIPDEFAULT as isize)
+            }
+            TBCD_THUMB => {
+                let radius = (height.max(12) * 22 / 100).max(5);
+                let x = (cd.rc.left + cd.rc.right) / 2;
+                let brush = CreateSolidBrush(if enabled { SURFACE } else { BACKGROUND });
+                let pen = CreatePen(PS_SOLID, 2, if enabled { ACCENT } else { DISABLED });
+                let old_brush = SelectObject(cd.hdc, brush);
+                let old_pen = SelectObject(cd.hdc, pen);
+                Ellipse(
+                    cd.hdc,
+                    x - radius,
+                    middle - radius,
+                    x + radius,
+                    middle + radius,
+                );
+                SelectObject(cd.hdc, old_brush);
+                SelectObject(cd.hdc, old_pen);
+                DeleteObject(brush);
+                DeleteObject(pen);
+                LRESULT(CDRF_SKIPDEFAULT as isize)
+            }
+            // The tick marks are dropped on purpose: the sliders read cleaner.
+            _ => LRESULT(CDRF_SKIPDEFAULT as isize),
+        }
+    }
+}
+
+/// Controls drawn with a tick box and a label.
+pub fn is_checkbox(id: i32) -> bool {
+    matches!(
+        id,
+        ID_SYSTEM_AUDIO | ID_MIC | ID_TRAY_AUDIO_SYSTEM | ID_TRAY_AUDIO_MIC | ID_AUTOSTART
+            ..=ID_CARD
+            | ID_CURSOR
+            | ID_TRAY_AREA_CURSOR
+            | ID_TRAY_VIDEO_CURSOR
+            // Audio checkboxes of the tray area and tray video sections.
+            | 166
+            | 167
+            | 176
+            | 177
+    )
+}
+
+/// The sliders, drawn by `paint_trackbar`.
+pub fn is_trackbar(id: i32) -> bool {
+    matches!(
+        id,
+        ID_FPS
+            | ID_MIC_GAIN
+            | ID_TRAY_AREA_GAIN
+            | ID_TRAY_VIDEO_GAIN
+            | ID_TRAY_AUDIO_GAIN
+            // The frame-rate sliders of the tray area and tray video sections.
+            | 164
+            | 174
+    )
 }
 
 pub fn is_mic_gain(id: i32) -> bool {
@@ -155,16 +271,25 @@ pub const ID_TRAY_AUDIO_GAIN: i32 = 197;
 pub const ID_MIC_GAIN_VALUE: i32 = 198;
 pub const ID_TRAY_AREA_GAIN_VALUE: i32 = 199;
 pub const ID_TRAY_VIDEO_GAIN_VALUE: i32 = 207;
+pub const ID_LANGUAGE_HEADING: i32 = 222;
+pub const ID_LANGUAGE: i32 = 223;
 pub const ID_TRAY_AUDIO_GAIN_VALUE: i32 = 208;
 pub const MIC_GAIN_MAX: u32 = 300;
-const PRESET_ITEMS: &[&str] = &["Quality", "Balance", "Speed", "Custom"];
+fn preset_items() -> Vec<String> {
+    vec![tr("Quality"), tr("Balance"), tr("Speed"), tr("Custom")]
+}
 const PRESET_CUSTOM: usize = 3;
-pub use crate::theme::{ACCENT, ACCENT_DEEP, BACKGROUND, DISABLED, MIST, TEXT};
+pub use crate::theme::{
+    ACCENT, ACCENT_DEEP, BACKGROUND, BORDER, DISABLED, MIST, MUTED, ON_ACCENT, SCROLLBAR,
+    SCROLLBAR_ACTIVE, SURFACE, TEXT,
+};
 
 const WINDOW_WIDTH: i32 = 760;
 /// Tallest page (Settings) plus its bottom margin. Both pages use it, so switching
 /// tabs never changes the window height and new settings never grow the window.
-const WINDOW_HEIGHT: i32 = 1181;
+const WINDOW_HEIGHT: i32 = 1000;
+/// Everything above this line is the fixed header; the settings scroll below it.
+pub const VIEWPORT_TOP: i32 = 56;
 
 struct Place {
     id: i32,
@@ -195,8 +320,8 @@ const CAPTURE: [Place; 26] = [
     p(ID_SYSTEM_AUDIO, 28, 178, 704, 26),
     p(ID_MIC, 28, 208, 160, 26),
     p(ID_MIC_DEVICE, 196, 207, 260, 300),
-    p(ID_MIC_GAIN, 464, 206, 180, 28),
-    p(ID_MIC_GAIN_VALUE, 652, 207, 80, 26),
+    p(ID_MIC_GAIN, 464, 206, 196, 28),
+    p(ID_MIC_GAIN_VALUE, 668, 207, 64, 26),
     p(ID_CURSOR, 28, 244, 704, 26),
     p(ID_SHOT_LABEL, 28, 284, 704, 22),
     p(ID_SHOT_SCREEN, 28, 310, 228, 36),
@@ -213,7 +338,7 @@ const CAPTURE: [Place; 26] = [
     p(ID_STATUS, 28, 584, 704, 28),
 ];
 
-const SETTINGS: [Place; 48] = [
+const SETTINGS: [Place; 50] = [
     p(ID_AUTOSTART, 28, 56, 704, 26),
     p(ID_START_MINIMIZED, 28, 87, 704, 26),
     p(ID_HIDE_ACTIVE, 28, 118, 704, 26),
@@ -235,8 +360,8 @@ const SETTINGS: [Place; 48] = [
     p(ID_TRAY_AREA_FORMAT + 6, 28, 576, 704, 26),
     p(ID_TRAY_AREA_FORMAT + 7, 28, 608, 160, 26),
     p(ID_TRAY_AREA_DEVICE, 196, 607, 260, 300),
-    p(ID_TRAY_AREA_GAIN, 464, 606, 180, 28),
-    p(ID_TRAY_AREA_GAIN_VALUE, 652, 607, 80, 26),
+    p(ID_TRAY_AREA_GAIN, 464, 606, 196, 28),
+    p(ID_TRAY_AREA_GAIN_VALUE, 668, 607, 64, 26),
     p(ID_TRAY_AREA_CURSOR, 28, 648, 704, 26),
     p(ID_VIDEO_HEADING, 28, 696, 704, 24),
     p(ID_TRAY_VIDEO_FORMAT, 28, 722, 704, 26),
@@ -249,20 +374,32 @@ const SETTINGS: [Place; 48] = [
     p(ID_TRAY_VIDEO_FORMAT + 6, 28, 838, 704, 26),
     p(ID_TRAY_VIDEO_FORMAT + 7, 28, 870, 160, 26),
     p(ID_TRAY_VIDEO_DEVICE, 196, 869, 260, 300),
-    p(ID_TRAY_VIDEO_GAIN, 464, 868, 180, 28),
-    p(ID_TRAY_VIDEO_GAIN_VALUE, 652, 869, 80, 26),
+    p(ID_TRAY_VIDEO_GAIN, 464, 868, 196, 28),
+    p(ID_TRAY_VIDEO_GAIN_VALUE, 668, 869, 64, 26),
     p(ID_TRAY_VIDEO_CURSOR, 28, 908, 704, 26),
     p(ID_TRAY_AUDIO_HEADING, 28, 958, 704, 24),
     p(ID_TRAY_AUDIO_SYSTEM, 28, 984, 704, 26),
     p(ID_TRAY_AUDIO_MIC, 28, 1016, 160, 26),
     p(ID_TRAY_AUDIO_DEVICE, 196, 1015, 260, 300),
-    p(ID_TRAY_AUDIO_GAIN, 464, 1014, 180, 28),
-    p(ID_TRAY_AUDIO_GAIN_VALUE, 652, 1015, 80, 26),
+    p(ID_TRAY_AUDIO_GAIN, 464, 1014, 196, 28),
+    p(ID_TRAY_AUDIO_GAIN_VALUE, 668, 1015, 64, 26),
     p(ID_THREADS_HEADING, 28, 1076, 346, 24),
     p(ID_THREADS, 28, 1102, 346, 300),
     p(ID_SCALE_HEADING, 386, 1076, 346, 24),
     p(ID_SCALE, 386, 1102, 346, 300),
+    p(ID_LANGUAGE_HEADING, 28, 1140, 704, 24),
+    p(ID_LANGUAGE, 28, 1166, 346, 300),
 ];
+
+/// Geometry of the settings scroll bar, in client coordinates.
+pub struct ScrollBar {
+    pub x: i32,
+    pub width: i32,
+    pub track_top: i32,
+    pub track_height: i32,
+    pub thumb_top: i32,
+    pub thumb_height: i32,
+}
 
 pub struct Controls {
     pub tab: HWND,
@@ -280,6 +417,10 @@ pub struct Controls {
     scale_percent: u32,
     scale_setting: u32,
     history_ack: Option<i32>,
+    checks: std::collections::HashMap<i32, bool>,
+    scroll: i32,
+    dragging: bool,
+    mask: HWND,
 }
 
 impl Controls {
@@ -300,6 +441,10 @@ impl Controls {
             scale_percent: 100,
             scale_setting: u32::MAX,
             history_ack: None,
+            checks: std::collections::HashMap::new(),
+            scroll: 0,
+            dragging: false,
+            mask: HWND::default(),
         }
     }
 
@@ -348,7 +493,7 @@ impl Controls {
                 ex,
                 class,
                 PCWSTR(text.as_mut_ptr()),
-                WS_CHILD | style,
+                WS_CHILD | WS_CLIPSIBLINGS | style,
                 0,
                 0,
                 10,
@@ -364,12 +509,17 @@ impl Controls {
             // SAFETY: The HWND is a control this program created. The theme names are literals.
 
             SendMessageW(hwnd, WM_SETFONT, WPARAM(self.font.0 as usize), LPARAM(1));
-            windows::Win32::UI::Controls::SetWindowTheme(hwnd, w!("Explorer"), PCWSTR::null()).ok();
         }
         if page == 0 {
             self.capture.push(hwnd);
         } else if page == 1 {
             self.settings.push(hwnd);
+        }
+        if is_heading(id) {
+            unsafe {
+                // SAFETY: The HWND is a control this program created, and the bold font lives with the window.
+                SendMessageW(hwnd, WM_SETFONT, WPARAM(self.bold.0 as usize), LPARAM(1));
+            }
         }
         self.values.push((id, hwnd));
         hwnd
@@ -381,7 +531,7 @@ impl Controls {
         let style = WINDOW_STYLE(WS_TABSTOP.0 | BS_OWNERDRAW as u32);
         self.tab = self.create_control(
             w!("BUTTON"),
-            "Capture",
+            &tr("Capture"),
             style,
             WINDOW_EX_STYLE(0),
             ID_TAB,
@@ -389,7 +539,7 @@ impl Controls {
         );
         self.settings_tab = self.create_control(
             w!("BUTTON"),
-            "Settings",
+            &tr("Settings"),
             style,
             WINDOW_EX_STYLE(0),
             ID_SETTINGS_TAB,
@@ -397,7 +547,7 @@ impl Controls {
         );
         self.create_control(
             w!("BUTTON"),
-            "Refresh",
+            &tr("Refresh"),
             style,
             WINDOW_EX_STYLE(0),
             ID_REFRESH,
@@ -414,7 +564,9 @@ impl Controls {
                 0,
             );
         }
-        self.combo(ID_PRESET, PRESET_ITEMS, 0);
+        let presets = preset_items();
+        let preset_refs: Vec<&str> = presets.iter().map(String::as_str).collect();
+        self.combo(ID_PRESET, &preset_refs, 0);
         self.combo(
             ID_RESOLUTION,
             &["2160 (4K)", "1440 (2K)", "1080 (FHD)", "720", "480", "360"],
@@ -442,7 +594,7 @@ impl Controls {
         }
         self.create_control(
             w!("STATIC"),
-            "60 FPS",
+            &tr("{fps} FPS").replace("{fps}", "60"),
             WINDOW_STYLE(0),
             WINDOW_EX_STYLE(0),
             ID_FPS_VALUE,
@@ -450,16 +602,16 @@ impl Controls {
         );
         self.create_control(
             w!("BUTTON"),
-            "System audio",
-            WINDOW_STYLE(BS_AUTOCHECKBOX as u32),
+            &tr("System audio"),
+            WINDOW_STYLE(BS_OWNERDRAW as u32),
             WINDOW_EX_STYLE(0),
             ID_SYSTEM_AUDIO,
             0,
         );
         self.create_control(
             w!("BUTTON"),
-            "Microphone",
-            WINDOW_STYLE(BS_AUTOCHECKBOX as u32),
+            &tr("Microphone"),
+            WINDOW_STYLE(BS_OWNERDRAW as u32),
             WINDOW_EX_STYLE(0),
             ID_MIC,
             0,
@@ -467,10 +619,10 @@ impl Controls {
         self.combo(ID_MIC_DEVICE, &["Auto"], 0);
         self.mic_gain_control(ID_MIC_GAIN, ID_MIC_GAIN_VALUE, 0);
         for (id, text) in [
-            (ID_SHOT_LABEL, "Screenshot:"),
-            (ID_CAPTURE_LABEL, "Capture:"),
-            (ID_AUDIO_LABEL, "Audio:"),
-            (ID_STOP_LABEL, "Stop:"),
+            (ID_SHOT_LABEL, &tr("Screenshot:")),
+            (ID_CAPTURE_LABEL, &tr("Capture:")),
+            (ID_AUDIO_LABEL, &tr("Audio:")),
+            (ID_STOP_LABEL, &tr("Stop:")),
         ] {
             self.create_control(
                 w!("STATIC"),
@@ -482,14 +634,14 @@ impl Controls {
             );
         }
         for (id, text) in [
-            (ID_SHOT_SCREEN, "Screen"),
-            (ID_SHOT_SOURCE, "Sources"),
-            (ID_SHOT_REGION, "Area"),
-            (ID_CAPTURE_SCREEN, "Screen"),
-            (ID_CAPTURE_SOURCE, "Sources"),
-            (ID_CAPTURE_REGION, "Area"),
-            (ID_CAPTURE_AUDIO, "Audio"),
-            (ID_STOP, "Stop capture"),
+            (ID_SHOT_SCREEN, &tr("Screen")),
+            (ID_SHOT_SOURCE, &tr("Sources")),
+            (ID_SHOT_REGION, &tr("Area")),
+            (ID_CAPTURE_SCREEN, &tr("Screen")),
+            (ID_CAPTURE_SOURCE, &tr("Sources")),
+            (ID_CAPTURE_REGION, &tr("Area")),
+            (ID_CAPTURE_AUDIO, &tr("Audio")),
+            (ID_STOP, &tr("Stop capture")),
         ] {
             self.create_control(
                 w!("BUTTON"),
@@ -502,7 +654,7 @@ impl Controls {
         }
         self.create_control(
             w!("STATIC"),
-            "Ready",
+            &tr("Ready"),
             WINDOW_STYLE(0x0100 | 0x4000),
             WINDOW_EX_STYLE(0),
             ID_STATUS,
@@ -543,31 +695,34 @@ impl Controls {
             );
         }
         for (id, text) in [
-            (ID_AUTOSTART, "Start with Windows"),
-            (ID_START_MINIMIZED, "Start minimized"),
+            (ID_AUTOSTART, &tr("Start with Windows")),
+            (ID_START_MINIMIZED, &tr("Start minimized")),
             (
                 ID_HIDE_ACTIVE,
-                "Hide to tray while recording or selecting an area",
+                &tr("Hide to tray while recording or selecting an area"),
             ),
-            (ID_CLOSE_TRAY, "Close to tray"),
-            (ID_CLIPBOARD, "Copy the saved file to clipboard"),
-            (ID_TRAY_CAPTURE, "Select an area on tray icon click"),
-            (ID_HIGHLIGHT, "Highlight the recording area"),
-            (ID_NOTIFY, "Play a sound when recording finishes"),
+            (ID_CLOSE_TRAY, &tr("Close to tray")),
+            (ID_CLIPBOARD, &tr("Copy the saved file to clipboard")),
+            (ID_TRAY_CAPTURE, &tr("Select an area on tray icon click")),
+            (ID_HIGHLIGHT, &tr("Highlight the recording area")),
+            (ID_NOTIFY, &tr("Play a sound when recording finishes")),
             (
                 ID_NO_SIGNAL,
-                "Keep recording with a no-signal card if the source disappears",
+                &tr("Keep recording with a no-signal card if the source disappears"),
             ),
-            (ID_CARD, "Show a no-signal card instead of the last frame"),
-            (ID_CURSOR, "Include pointer"),
-            (ID_TRAY_AREA_CURSOR, "Include pointer"),
-            (ID_TRAY_VIDEO_CURSOR, "Include pointer"),
+            (
+                ID_CARD,
+                &tr("Show a no-signal card instead of the last frame"),
+            ),
+            (ID_CURSOR, &tr("Include pointer")),
+            (ID_TRAY_AREA_CURSOR, &tr("Include pointer")),
+            (ID_TRAY_VIDEO_CURSOR, &tr("Include pointer")),
         ] {
             let page = if id == ID_CURSOR { 0 } else { 1 };
             self.create_control(
                 w!("BUTTON"),
                 text,
-                WINDOW_STYLE(BS_AUTOCHECKBOX as u32),
+                WINDOW_STYLE(BS_OWNERDRAW as u32),
                 WINDOW_EX_STYLE(0),
                 id,
                 page,
@@ -575,7 +730,7 @@ impl Controls {
         }
         self.create_control(
             w!("STATIC"),
-            "Tray area recording",
+            &tr("Tray area recording"),
             WINDOW_STYLE(0),
             WINDOW_EX_STYLE(0),
             ID_AREA_HEADING,
@@ -583,7 +738,7 @@ impl Controls {
         );
         self.create_control(
             w!("STATIC"),
-            "Tray video recording",
+            &tr("Tray video recording"),
             WINDOW_STYLE(0),
             WINDOW_EX_STYLE(0),
             ID_VIDEO_HEADING,
@@ -591,7 +746,7 @@ impl Controls {
         );
         self.create_control(
             w!("STATIC"),
-            "FFmpeg threads",
+            &tr("FFmpeg threads"),
             WINDOW_STYLE(0),
             WINDOW_EX_STYLE(0),
             ID_THREADS_HEADING,
@@ -599,7 +754,7 @@ impl Controls {
         );
         self.create_control(
             w!("STATIC"),
-            "Interface scale",
+            &tr("Interface scale"),
             WINDOW_STYLE(0),
             WINDOW_EX_STYLE(0),
             ID_SCALE_HEADING,
@@ -607,7 +762,7 @@ impl Controls {
         );
         self.create_control(
             w!("STATIC"),
-            "Tray audio recording",
+            &tr("Tray audio recording"),
             WINDOW_STYLE(0),
             WINDOW_EX_STYLE(0),
             ID_TRAY_AUDIO_HEADING,
@@ -615,16 +770,16 @@ impl Controls {
         );
         self.create_control(
             w!("BUTTON"),
-            "System audio",
-            WINDOW_STYLE(BS_AUTOCHECKBOX as u32),
+            &tr("System audio"),
+            WINDOW_STYLE(BS_OWNERDRAW as u32),
             WINDOW_EX_STYLE(0),
             ID_TRAY_AUDIO_SYSTEM,
             1,
         );
         self.create_control(
             w!("BUTTON"),
-            "Microphone",
-            WINDOW_STYLE(BS_AUTOCHECKBOX as u32),
+            &tr("Microphone"),
+            WINDOW_STYLE(BS_OWNERDRAW as u32),
             WINDOW_EX_STYLE(0),
             ID_TRAY_AUDIO_MIC,
             1,
@@ -639,9 +794,248 @@ impl Controls {
             &["Auto", "1", "1.25", "1.5", "1.75", "2", "2.25", "2.5", "3"],
             1,
         );
+        self.create_control(
+            w!("STATIC"),
+            &tr("Language"),
+            WINDOW_STYLE(0),
+            WINDOW_EX_STYLE(0),
+            ID_LANGUAGE_HEADING,
+            1,
+        );
+        let language_items: Vec<String> = std::iter::once(tr("System (automatic)"))
+            .chain(crate::i18n::available().into_iter().map(|(_, name)| name))
+            .collect();
+        let language_refs: Vec<&str> = language_items.iter().map(String::as_str).collect();
+        self.combo(ID_LANGUAGE, &language_refs, 1);
         self.load_ui(settings);
         self.show_page(0);
         self.apply_scale(settings);
+        self.mask = unsafe {
+            // SAFETY: The class name lives for the process, and the parent is
+            // this window; the handle is stored and destroyed with it.
+            CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                w!("STATIC"),
+                w!(""),
+                WINDOW_STYLE(WS_CHILD.0 | WS_CLIPSIBLINGS.0),
+                0,
+                0,
+                WINDOW_WIDTH,
+                VIEWPORT_TOP,
+                self.hwnd,
+                None,
+                GetModuleHandleW(None).unwrap(),
+                None,
+            )
+        }
+        .unwrap();
+        self.raise_header();
+        unsafe {
+            // SAFETY: The mask is a child of this window.
+            ShowWindow(self.mask, SW_HIDE);
+        }
+    }
+
+    /// Keeps the tab row above the mask, and the mask above the page content.
+    fn raise_header(&self) {
+        let header = [
+            self.tab,
+            self.settings_tab,
+            self.get(ID_REFRESH),
+            self.get(ID_ABOUT),
+        ];
+        unsafe {
+            // SAFETY: Every handle is a control of this window.
+            SetWindowPos(
+                self.mask,
+                HWND_TOP,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            )
+            .ok();
+            for hwnd in header {
+                SetWindowPos(
+                    hwnd,
+                    HWND_TOP,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                )
+                .ok();
+            }
+        }
+    }
+
+    /// The settings page is taller than the fixed window, so it scrolls.
+    fn client_height(&self) -> i32 {
+        let mut rect = RECT::default();
+        unsafe {
+            // SAFETY: The HWND is this window and the RECT is a writable local.
+            GetClientRect(self.hwnd, &mut rect).ok();
+        }
+        rect.bottom - rect.top
+    }
+
+    fn scale(&self, value: i32) -> i32 {
+        value * self.scale_percent as i32 / 100
+    }
+
+    fn content_bottom() -> i32 {
+        SETTINGS
+            .iter()
+            .map(|place| place.y + place.h.min(40))
+            .max()
+            .unwrap_or(0)
+    }
+
+    fn scroll_range(&self) -> i32 {
+        (self.scale(Self::content_bottom()) - self.client_height()).max(0)
+    }
+
+    pub fn scroll_by(&mut self, pixels: i32) {
+        self.set_scroll(self.scroll + pixels);
+    }
+
+    fn set_scroll(&mut self, value: i32) {
+        let value = value.clamp(0, self.scroll_range());
+        if value == self.scroll {
+            return;
+        }
+        self.scroll = value;
+        unsafe {
+            // SAFETY: The HWND is this window; the freeze only delays painting.
+            SendMessageW(self.hwnd, WM_SETREDRAW, WPARAM(0), LPARAM(0));
+        }
+        self.layout();
+        unsafe {
+            // SAFETY: The HWND is this window, and the repaint covers children.
+            SendMessageW(self.hwnd, WM_SETREDRAW, WPARAM(1), LPARAM(0));
+            RedrawWindow(
+                self.hwnd,
+                None,
+                None,
+                RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW,
+            )
+            .ok();
+        }
+    }
+
+    /// Where the scroll bar sits, in client coordinates.
+    pub fn scrollbar(&self) -> Option<ScrollBar> {
+        if self.page != 1 {
+            return None;
+        }
+        let range = self.scroll_range();
+        if range <= 0 {
+            return None;
+        }
+        let width = self.scale(7).max(4);
+        let mut client = RECT::default();
+        unsafe {
+            // SAFETY: The HWND is this window and the RECT is a writable local.
+            GetClientRect(self.hwnd, &mut client).ok();
+        }
+        let right = client.right;
+        let track_top = self.scale(VIEWPORT_TOP) + self.scale(6);
+        let track_height = self.client_height() - track_top - self.scale(8);
+        if track_height <= 0 {
+            return None;
+        }
+        let content = self.scale(Self::content_bottom());
+        let viewport = self.client_height() - self.scale(VIEWPORT_TOP);
+        let thumb_height = (viewport * viewport / content.max(1)).max(self.scale(28));
+        let travel = (track_height - thumb_height).max(1);
+        let thumb_top = track_top + self.scroll * travel / range;
+        Some(ScrollBar {
+            x: right - width - self.scale(10),
+            width,
+            track_top,
+            track_height,
+            thumb_top,
+            thumb_height,
+        })
+    }
+
+    /// Starts a drag if the point is on the scroll bar.
+    pub fn scrollbar_press(&mut self, x: i32, y: i32) -> bool {
+        let Some(bar) = self.scrollbar() else {
+            return false;
+        };
+        if x < bar.x - self.scale(6) || x > bar.x + bar.width {
+            return false;
+        }
+        if y >= bar.thumb_top && y <= bar.thumb_top + bar.thumb_height {
+            self.dragging = true;
+            return true;
+        }
+        if y >= bar.track_top && y <= bar.track_top + bar.track_height {
+            self.dragging = true;
+            self.drag_to(y);
+            return true;
+        }
+        false
+    }
+
+    pub fn scrollbar_move(&mut self, y: i32) -> bool {
+        if !self.dragging {
+            return false;
+        }
+        self.drag_to(y);
+        true
+    }
+
+    pub fn scrollbar_release(&mut self) -> bool {
+        let was = self.dragging;
+        self.dragging = false;
+        was
+    }
+
+    fn drag_to(&mut self, y: i32) {
+        let Some(bar) = self.scrollbar() else {
+            return;
+        };
+        let travel = (bar.track_height - bar.thumb_height).max(1);
+        let top = (y - bar.thumb_height / 2 - bar.track_top).clamp(0, travel);
+        let range = self.scroll_range();
+        self.set_scroll(range * top / travel);
+    }
+
+    /// A slim rounded thumb, drawn over the page background.
+    pub fn paint_scrollbar(&self, dc: HDC) {
+        let Some(bar) = self.scrollbar() else {
+            return;
+        };
+        let color = if self.dragging {
+            SCROLLBAR_ACTIVE
+        } else {
+            SCROLLBAR
+        };
+        unsafe {
+            // SAFETY: The DC belongs to this window's paint, and created objects are deleted here.
+            let brush = CreateSolidBrush(color);
+            let pen = CreatePen(PS_SOLID, 1, color);
+            let old_brush = SelectObject(dc, brush);
+            let old_pen = SelectObject(dc, pen);
+            let radius = bar.width.max(4);
+            RoundRect(
+                dc,
+                bar.x,
+                bar.thumb_top,
+                bar.x + bar.width,
+                bar.thumb_top + bar.thumb_height,
+                radius,
+                radius,
+            );
+            SelectObject(dc, old_brush);
+            SelectObject(dc, old_pen);
+            DeleteObject(brush);
+            DeleteObject(pen);
+        }
     }
 
     fn combo(&mut self, id: i32, items: &[&str], page: usize) {
@@ -692,14 +1086,16 @@ impl Controls {
         } else {
             self.create_control(
                 w!("STATIC"),
-                "Format: MKV",
+                &tr("Format: MKV"),
                 WINDOW_STYLE(0),
                 WINDOW_EX_STYLE(0),
                 base,
                 1,
             );
         }
-        self.combo(base + 9, PRESET_ITEMS, 1);
+        let presets = preset_items();
+        let preset_refs: Vec<&str> = presets.iter().map(String::as_str).collect();
+        self.combo(base + 9, &preset_refs, 1);
         self.combo(
             base + 3,
             &["2160 (4K)", "1440 (2K)", "1080 (FHD)", "720", "480", "360"],
@@ -726,7 +1122,7 @@ impl Controls {
         }
         self.create_control(
             w!("STATIC"),
-            "60 FPS",
+            &trf("{fps} FPS", &[("fps", "60")]),
             WINDOW_STYLE(0),
             WINDOW_EX_STYLE(0),
             base + 5,
@@ -734,16 +1130,16 @@ impl Controls {
         );
         self.create_control(
             w!("BUTTON"),
-            "System audio",
-            WINDOW_STYLE(BS_AUTOCHECKBOX as u32),
+            &tr("System audio"),
+            WINDOW_STYLE(BS_OWNERDRAW as u32),
             WINDOW_EX_STYLE(0),
             base + 6,
             1,
         );
         self.create_control(
             w!("BUTTON"),
-            "Microphone",
-            WINDOW_STYLE(BS_AUTOCHECKBOX as u32),
+            &tr("Microphone"),
+            WINDOW_STYLE(BS_OWNERDRAW as u32),
             WINDOW_EX_STYLE(0),
             base + 7,
             1,
@@ -778,8 +1174,9 @@ impl Controls {
         }
         self.create_control(
             w!("STATIC"),
-            "Mic 100%",
-            WINDOW_STYLE(0),
+            "100%",
+            // SS_RIGHT: the value ends the row, aligned with the right edge.
+            WINDOW_STYLE(0x00000002),
             WINDOW_EX_STYLE(0),
             value,
             page,
@@ -789,39 +1186,53 @@ impl Controls {
     pub fn show_page(&mut self, page: usize) {
         self.page = page;
         unsafe {
-            // SAFETY: The HWND is a window or child control this program created and still owns.
+            // SAFETY: Every HWND here is a control this program created. The
+            // freeze below only delays painting until the switch is finished.
 
+            // A page switch touches dozens of child windows; repainting each one
+            // as it appears is what made the tabs flicker. Freeze the window,
+            // move everything, then repaint once.
+            SendMessageW(self.hwnd, WM_SETREDRAW, WPARAM(0), LPARAM(0));
             ShowWindow(self.tab, SW_SHOW);
             ShowWindow(self.settings_tab, SW_SHOW);
             ShowWindow(self.get(ID_REFRESH), SW_SHOW);
-            ShowWindow(self.get(ID_ABOUT), SW_SHOW)
-        };
+            ShowWindow(self.get(ID_ABOUT), SW_SHOW);
+        }
         for h in &self.capture {
             unsafe {
-                // SAFETY: The HWND is a window or child control this program created and still owns.
+                // SAFETY: The HWND is a child control of this window.
                 ShowWindow(*h, if page == 0 { SW_SHOW } else { SW_HIDE })
             };
         }
         for h in &self.settings {
             unsafe {
-                // SAFETY: The HWND is a window or child control this program created and still owns.
+                // SAFETY: The HWND is a child control of this window.
                 ShowWindow(*h, if page == 1 { SW_SHOW } else { SW_HIDE })
             };
         }
+        if page == 1 {
+            self.scroll = 0;
+        }
         self.layout();
-        self.resize_window();
         self.refresh_formats();
         unsafe {
-            // SAFETY: The HWND is a window this program created.
-            InvalidateRect(self.hwnd, None, true)
-        };
-        // The window clips children, so invalidating it leaves the tab buttons
-        // showing the previous page. They have to be redrawn on their own.
-        for hwnd in [self.tab, self.settings_tab] {
-            unsafe {
-                // SAFETY: Both HWNDs are the tab buttons this window created.
-                RedrawWindow(hwnd, None, None, RDW_INVALIDATE | RDW_UPDATENOW).ok();
-            }
+            // SAFETY: The mask is a child of this window.
+            ShowWindow(self.mask, if page == 1 { SW_SHOW } else { SW_HIDE });
+        }
+        if page == 1 {
+            self.raise_header();
+        }
+        unsafe {
+            // SAFETY: The HWND is this window; one composite repaint replaces
+            // the per-control ones.
+            SendMessageW(self.hwnd, WM_SETREDRAW, WPARAM(1), LPARAM(0));
+            RedrawWindow(
+                self.hwnd,
+                None,
+                None,
+                RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW,
+            )
+            .ok();
         }
     }
 
@@ -834,13 +1245,14 @@ impl Controls {
         unsafe {
             // SAFETY: The HWND is a child control of the main window.
 
+            // The page repaint is requested once, after the whole layout pass.
             MoveWindow(
                 self.get(place.id),
                 scale(place.x),
                 y,
                 scale(place.w),
                 scale(place.h),
-                true,
+                false,
             )
         }
         .ok();
@@ -862,8 +1274,9 @@ impl Controls {
                 self.place(&p(ID_HISTORY_REVEAL + index, 708, y, 24, 24));
             }
         } else {
+            let offset = self.scroll;
             for place in &SETTINGS {
-                self.place(place);
+                self.place_at(place, (place.y - offset) * self.scale_percent as i32 / 100);
             }
         }
         self.sync_history();
@@ -898,10 +1311,15 @@ impl Controls {
         }
         self.font = scaled_font(percent, FW_NORMAL.0 as i32);
         self.bold = scaled_font(percent, FW_BOLD.0 as i32);
-        for (_, hwnd) in &self.values {
+        for (id, hwnd) in &self.values {
+            let font = if is_heading(*id) {
+                self.bold
+            } else {
+                self.font
+            };
             unsafe {
                 // SAFETY: The HWND is a child control of the main window, and the font stays alive for that window.
-                SendMessageW(*hwnd, WM_SETFONT, WPARAM(self.font.0 as usize), LPARAM(1))
+                SendMessageW(*hwnd, WM_SETFONT, WPARAM(font.0 as usize), LPARAM(1))
             };
         }
         self.layout();
@@ -984,6 +1402,30 @@ impl Controls {
             },
         );
         self.select(ID_SCALE, scale_index(settings.scale));
+        self.select(ID_LANGUAGE, Self::language_index(&settings.ui_language));
+    }
+
+    /// Index of the saved language in the combo: 0 is "system", the rest follow
+    /// the order of `i18n::available`.
+    fn language_index(code: &str) -> usize {
+        if code.is_empty() {
+            return 0;
+        }
+        crate::i18n::available()
+            .iter()
+            .position(|(item, _)| item == code)
+            .map(|index| index + 1)
+            .unwrap_or(0)
+    }
+
+    fn language_value(index: usize) -> String {
+        if index == 0 {
+            return String::new();
+        }
+        crate::i18n::available()
+            .get(index - 1)
+            .map(|(code, _)| code.clone())
+            .unwrap_or_default()
     }
 
     pub fn set_microphone_gain(&mut self, id: i32, gain: u32) {
@@ -992,7 +1434,10 @@ impl Controls {
             // SAFETY: The target is a trackbar this program created. The position is a plain integer.
             SendMessageW(self.get(id), TBM_SETPOS, WPARAM(1), LPARAM(gain as isize));
         }
-        self.set_text(gain_value_id(id), &format!("Mic {gain}%"));
+        self.set_text(
+            gain_value_id(id),
+            &trf("{gain}%", &[("gain", &gain.to_string())]),
+        );
     }
 
     pub fn microphone_gain(&self, id: i32) -> u32 {
@@ -1015,7 +1460,10 @@ impl Controls {
                 LPARAM(v.fps as isize),
             )
         };
-        self.set_text(ID_FPS_VALUE, &format!("{} FPS", v.fps));
+        self.set_text(
+            ID_FPS_VALUE,
+            &trf("{fps} FPS", &[("fps", &v.fps.to_string())]),
+        );
         self.select(ID_PRESET, preset_index(settings.format, v));
     }
 
@@ -1086,7 +1534,10 @@ impl Controls {
                 LPARAM(video.fps as isize),
             )
         };
-        self.set_text(base + 5, &format!("{} FPS", video.fps));
+        self.set_text(
+            base + 5,
+            &trf("{fps} FPS", &[("fps", &video.fps.to_string())]),
+        );
         let gain = if area {
             ID_TRAY_AREA_GAIN
         } else {
@@ -1095,29 +1546,25 @@ impl Controls {
         self.load_audio(base + 6, base + 7, base + 8, gain, &p.audio);
     }
 
-    pub fn check(&self, id: i32, checked: bool) {
+    pub fn check(&mut self, id: i32, checked: bool) {
+        if self.checks.insert(id, checked) == Some(checked) {
+            return;
+        }
         unsafe {
-            // SAFETY: The target is a window this program created. Any pointer in the message addresses memory that outlives the call.
-
-            SendMessageW(
-                self.get(id),
-                BM_SETCHECK,
-                WPARAM(if checked {
-                    BST_CHECKED.0 as usize
-                } else {
-                    BST_UNCHECKED.0 as usize
-                }),
-                LPARAM(0),
-            )
-        };
+            // SAFETY: The HWND is a control this window created.
+            InvalidateRect(self.get(id), None, false);
+        }
     }
 
     pub fn checked(&self, id: i32) -> bool {
-        unsafe {
-            // SAFETY: The HWND is a checkbox this window created. The message takes no pointer.
-            SendMessageW(self.get(id), BM_GETCHECK, WPARAM(0), LPARAM(0)).0
-                == BST_CHECKED.0 as isize
-        }
+        self.checks.get(&id).copied().unwrap_or(false)
+    }
+
+    /// Ownerdraw buttons keep no check state of their own, so a click flips it
+    /// here before the window saves the settings.
+    pub fn toggle(&mut self, id: i32) {
+        let checked = !self.checked(id);
+        self.check(id, checked);
     }
 
     pub fn select(&self, id: i32, index: usize) {
@@ -1271,6 +1718,7 @@ impl Controls {
             _ => 0,
         };
         settings.scale = scale_value(self.selected(ID_SCALE));
+        settings.ui_language = Self::language_value(self.selected(ID_LANGUAGE));
         settings.save();
         self.apply_scale(settings);
     }
@@ -1566,6 +2014,11 @@ pub fn draw_button(lparam: LPARAM, controls: &Controls) {
             draw_history_icon(item, click, controls.scale_percent, pressed, acknowledged);
             return;
         }
+        let scale = controls.scale_percent as i32;
+        if is_checkbox(id) {
+            draw_checkbox(item, controls, scale);
+            return;
+        }
         let radio = if (ID_FORMAT..=ID_FORMAT + 2).contains(&id) {
             Some((ID_FORMAT, controls.format_index))
         } else if (ID_TRAY_AREA_FORMAT..=ID_TRAY_AREA_FORMAT + 2).contains(&id) {
@@ -1577,13 +2030,24 @@ pub fn draw_button(lparam: LPARAM, controls: &Controls) {
         };
         if let Some((base, format_index)) = radio {
             let selected = format_index == (id - base) as usize;
+            let pressed = (item.itemState.0 & ODS_SELECTED.0) != 0;
+            let parent = CreateSolidBrush(BACKGROUND);
+            FillRect(item.hDC, &item.rcItem, parent);
+            DeleteObject(parent);
+            let radius = (8 * scale / 100).max(4);
+            let mut text = vec![0u16; 256];
+            let len = GetWindowTextW(item.hwndItem, &mut text) as usize;
+            text.truncate(len);
+            let mut rect = item.rcItem;
+            SetBkMode(item.hDC, TRANSPARENT);
             if base == ID_TRAY_AREA_FORMAT {
-                let parent = CreateSolidBrush(BACKGROUND);
-                FillRect(item.hDC, &item.rcItem, parent);
-                DeleteObject(parent);
-                let radius = (8 * controls.scale_percent as i32 / 100).max(4);
-                let fill = if selected { ACCENT } else { BACKGROUND };
-                let edge = if selected { ACCENT } else { MIST };
+                let (fill, edge, ink) = if selected {
+                    (ACCENT, ACCENT, ON_ACCENT)
+                } else if pressed {
+                    (MIST, BORDER, TEXT)
+                } else {
+                    (SURFACE, BORDER, TEXT)
+                };
                 let brush = CreateSolidBrush(fill);
                 let pen = CreatePen(PS_SOLID, 1, edge);
                 let old_brush = SelectObject(item.hDC, brush);
@@ -1601,19 +2065,7 @@ pub fn draw_button(lparam: LPARAM, controls: &Controls) {
                 SelectObject(item.hDC, old_pen);
                 DeleteObject(brush);
                 DeleteObject(pen);
-                let mut text = vec![0u16; 256];
-                let len = GetWindowTextW(item.hwndItem, &mut text) as usize;
-                text.truncate(len);
-                let mut rect = item.rcItem;
-                SetBkMode(item.hDC, TRANSPARENT);
-                SetTextColor(
-                    item.hDC,
-                    if selected {
-                        crate::theme::ON_ACCENT
-                    } else {
-                        TEXT
-                    },
-                );
+                SetTextColor(item.hDC, ink);
                 let old = SelectObject(item.hDC, controls.font);
                 DrawTextW(
                     item.hDC,
@@ -1622,85 +2074,75 @@ pub fn draw_button(lparam: LPARAM, controls: &Controls) {
                     DT_CENTER | DT_VCENTER | DT_SINGLELINE,
                 );
                 SelectObject(item.hDC, old);
-                return;
-            }
-            let brush = CreateSolidBrush(BACKGROUND);
-            FillRect(item.hDC, &item.rcItem, brush);
-            DeleteObject(brush);
-            let radius = 8 * controls.scale_percent as i32 / 100;
-            let x = item.rcItem.left + 6 * controls.scale_percent as i32 / 100 + radius;
-            let y = (item.rcItem.top + item.rcItem.bottom) / 2;
-            let outer = CreateSolidBrush(ACCENT);
-            SelectObject(item.hDC, outer);
-            Ellipse(item.hDC, x - radius, y - radius, x + radius, y + radius);
-            DeleteObject(outer);
-            if selected {
-                let inner_radius = (radius / 2).max(2);
-                let inner = CreateSolidBrush(TEXT);
-                SelectObject(item.hDC, inner);
-                Ellipse(
+            } else {
+                // A radio mark followed by its label.
+                let mark = (7 * scale / 100).max(3);
+                let x = item.rcItem.left + 6 * scale / 100 + mark;
+                let y = (item.rcItem.top + item.rcItem.bottom) / 2;
+                let edge = if selected { ACCENT } else { BORDER };
+                let fill = if selected { ACCENT } else { SURFACE };
+                let brush = CreateSolidBrush(fill);
+                let pen = CreatePen(PS_SOLID, 1, edge);
+                let old_brush = SelectObject(item.hDC, brush);
+                let old_pen = SelectObject(item.hDC, pen);
+                Ellipse(item.hDC, x - mark, y - mark, x + mark, y + mark);
+                SelectObject(item.hDC, old_brush);
+                SelectObject(item.hDC, old_pen);
+                DeleteObject(brush);
+                DeleteObject(pen);
+                if selected {
+                    let inner = (mark / 2).max(2);
+                    let dot = CreateSolidBrush(ON_ACCENT);
+                    SelectObject(item.hDC, dot);
+                    Ellipse(item.hDC, x - inner, y - inner, x + inner, y + inner);
+                    DeleteObject(dot);
+                }
+                rect.left = x + mark + 8 * scale / 100;
+                SetTextColor(item.hDC, if pressed { MUTED } else { TEXT });
+                let old = SelectObject(item.hDC, controls.font);
+                DrawTextW(
                     item.hDC,
-                    x - inner_radius,
-                    y - inner_radius,
-                    x + inner_radius,
-                    y + inner_radius,
+                    &mut text,
+                    &mut rect,
+                    DT_LEFT | DT_VCENTER | DT_SINGLELINE,
                 );
-                DeleteObject(inner);
+                SelectObject(item.hDC, old);
             }
-            let mut text = vec![0u16; 256];
-            let len = GetWindowTextW(item.hwndItem, &mut text) as usize;
-            text.truncate(len);
-            let mut rect = item.rcItem;
-            rect.left = x + radius + 8 * controls.scale_percent as i32 / 100;
-            SetBkMode(item.hDC, TRANSPARENT);
-            SetTextColor(item.hDC, TEXT);
-            let old = SelectObject(item.hDC, controls.font);
-            DrawTextW(
-                item.hDC,
-                &mut text,
-                &mut rect,
-                DT_LEFT | DT_VCENTER | DT_SINGLELINE,
-            );
-            SelectObject(item.hDC, old);
             return;
         }
         let tab = id == ID_TAB || id == ID_SETTINGS_TAB;
         let active_tab =
             (id == ID_TAB && controls.page == 0) || (id == ID_SETTINGS_TAB && controls.page == 1);
         let enabled = IsWindowEnabled(item.hwndItem).as_bool();
-        let resting = tab && !active_tab && enabled;
-        let color = if !enabled {
-            DISABLED
-        } else if id == ID_STOP {
-            ACCENT_DEEP
-        } else if resting {
-            BACKGROUND
-        } else {
-            ACCENT
-        };
+        let pressed = (item.itemState.0 & ODS_SELECTED.0) != 0;
         let parent = CreateSolidBrush(BACKGROUND);
         FillRect(item.hDC, &item.rcItem, parent);
         DeleteObject(parent);
-        let radius = (12 * controls.scale_percent as i32 / 100).max(4);
-        if resting {
-            let pen = CreatePen(PS_SOLID, 1, MIST);
-            let old_brush = SelectObject(item.hDC, GetStockObject(NULL_BRUSH));
-            let old_pen = SelectObject(item.hDC, pen);
-            RoundRect(
-                item.hDC,
-                item.rcItem.left,
-                item.rcItem.top,
-                item.rcItem.right,
-                item.rcItem.bottom,
-                radius,
-                radius,
-            );
-            SelectObject(item.hDC, old_brush);
-            SelectObject(item.hDC, old_pen);
-            DeleteObject(pen);
+        let radius = (if tab { 10 } else { 8 } * scale / 100).max(4);
+        // Tabs are a segmented control: the active one is a white pill, the rest
+        // sit flat on the surface. Other buttons are white cards, the stop
+        // action is the only filled one.
+        let (fill, edge, ink) = if !enabled {
+            (BACKGROUND, MIST, DISABLED)
+        } else if tab {
+            if active_tab {
+                (SURFACE, BORDER, TEXT)
+            } else if pressed {
+                (MIST, MIST, TEXT)
+            } else {
+                (BACKGROUND, BACKGROUND, MUTED)
+            }
+        } else if id == ID_STOP {
+            let fill = if pressed { ACCENT_DEEP } else { ACCENT };
+            (fill, fill, ON_ACCENT)
+        } else if pressed {
+            (MIST, BORDER, TEXT)
         } else {
-            let brush = CreateSolidBrush(color);
-            let pen = CreatePen(PS_SOLID, 1, color);
+            (SURFACE, BORDER, TEXT)
+        };
+        if fill.0 != BACKGROUND.0 || edge.0 != BACKGROUND.0 {
+            let brush = CreateSolidBrush(fill);
+            let pen = CreatePen(PS_SOLID, 1, edge);
             let old_brush = SelectObject(item.hDC, brush);
             let old_pen = SelectObject(item.hDC, pen);
             RoundRect(
@@ -1721,15 +2163,7 @@ pub fn draw_button(lparam: LPARAM, controls: &Controls) {
         let len = GetWindowTextW(item.hwndItem, &mut text) as usize;
         text.truncate(len);
         SetBkMode(item.hDC, TRANSPARENT);
-        let on_light = !enabled || resting;
-        SetTextColor(
-            item.hDC,
-            if on_light {
-                TEXT
-            } else {
-                crate::theme::ON_ACCENT
-            },
-        );
+        SetTextColor(item.hDC, ink);
         let old = SelectObject(
             item.hDC,
             if tab && active_tab {
@@ -1746,6 +2180,90 @@ pub fn draw_button(lparam: LPARAM, controls: &Controls) {
         );
         SelectObject(item.hDC, old);
     }
+}
+
+/// A checkbox drawn like the rest of the interface: a small rounded box and a
+/// tick, with the label after it.
+fn draw_checkbox(item: &DRAWITEMSTRUCT, controls: &Controls, scale: i32) {
+    unsafe {
+        // SAFETY: The DC and the HWND come from the WM_DRAWITEM message for a
+        // checkbox this program created; created GDI objects are deleted below.
+
+        let checked = controls.checked(item.CtlID as i32);
+        let enabled = IsWindowEnabled(item.hwndItem).as_bool();
+        let pressed = (item.itemState.0 & ODS_SELECTED.0) != 0;
+        let parent = CreateSolidBrush(BACKGROUND);
+        FillRect(item.hDC, &item.rcItem, parent);
+        DeleteObject(parent);
+        let size = (18 * scale / 100).max(12);
+        let left = item.rcItem.left + 2 * scale / 100;
+        let top = (item.rcItem.top + item.rcItem.bottom - size) / 2;
+        let (fill, edge) = if !enabled {
+            (BACKGROUND, MIST)
+        } else if checked {
+            (ACCENT, ACCENT)
+        } else if pressed {
+            (MIST, BORDER)
+        } else {
+            (SURFACE, BORDER)
+        };
+        let brush = CreateSolidBrush(fill);
+        let pen = CreatePen(PS_SOLID, 1, edge);
+        let old_brush = SelectObject(item.hDC, brush);
+        let old_pen = SelectObject(item.hDC, pen);
+        let radius = (5 * scale / 100).max(2);
+        RoundRect(item.hDC, left, top, left + size, top + size, radius, radius);
+        SelectObject(item.hDC, old_brush);
+        SelectObject(item.hDC, old_pen);
+        DeleteObject(brush);
+        DeleteObject(pen);
+        if checked {
+            let pen = CreatePen(PS_SOLID, (2 * scale / 100).max(1), ON_ACCENT);
+            let old = SelectObject(item.hDC, pen);
+            MoveToEx(
+                item.hDC,
+                left + size * 28 / 100,
+                top + size * 52 / 100,
+                None,
+            );
+            LineTo(item.hDC, left + size * 44 / 100, top + size * 68 / 100);
+            LineTo(item.hDC, left + size * 74 / 100, top + size * 32 / 100);
+            SelectObject(item.hDC, old);
+            DeleteObject(pen);
+        }
+        let mut text = vec![0u16; 512];
+        let len = GetWindowTextW(item.hwndItem, &mut text) as usize;
+        text.truncate(len);
+        let mut rect = item.rcItem;
+        rect.left = left + size + 9 * scale / 100;
+        SetBkMode(item.hDC, TRANSPARENT);
+        SetTextColor(item.hDC, if enabled { TEXT } else { DISABLED });
+        let old = SelectObject(item.hDC, controls.font);
+        DrawTextW(
+            item.hDC,
+            &mut text,
+            &mut rect,
+            DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
+        );
+        SelectObject(item.hDC, old);
+    }
+}
+
+/// Controls that are section titles rather than body text.
+fn is_heading(id: i32) -> bool {
+    matches!(
+        id,
+        ID_SHOT_LABEL
+            | ID_CAPTURE_LABEL
+            | ID_AUDIO_LABEL
+            | ID_STOP_LABEL
+            | ID_AREA_HEADING
+            | ID_VIDEO_HEADING
+            | ID_THREADS_HEADING
+            | ID_SCALE_HEADING
+            | ID_TRAY_AUDIO_HEADING
+            | ID_LANGUAGE_HEADING
+    )
 }
 
 fn draw_history_icon(

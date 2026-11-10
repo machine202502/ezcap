@@ -1,10 +1,44 @@
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+/// Put the catalogs next to the built executable, so `cargo run` and a plain
+/// `cargo build` see the same `locales/` folder the installer ships. Packaging
+/// still copies the executable alone, so the portable build stays English-only.
+fn copy_locales() {
+    println!("cargo:rerun-if-changed=locales");
+    let Ok(out_dir) = std::env::var("OUT_DIR").map(PathBuf::from) else {
+        return;
+    };
+    // OUT_DIR is <target>/<profile>/build/<package>-<hash>/out.
+    let Some(profile_dir) = out_dir.ancestors().nth(3) else {
+        return;
+    };
+    let source = Path::new("locales");
+    if !source.is_dir() {
+        return;
+    }
+    let dest = profile_dir.join("locales");
+    let _ = std::fs::create_dir_all(&dest);
+    let Ok(entries) = std::fs::read_dir(source) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_name() else {
+            continue;
+        };
+        let _ = std::fs::copy(&path, dest.join(name));
+    }
+}
 
 fn main() {
     println!("cargo:rerun-if-env-changed=FFMPEG_DIR");
     println!("cargo:rerun-if-changed=assets/ezcap.ico");
     println!("cargo:rerun-if-changed=assets/app.manifest");
+    copy_locales();
     let mut resource = winres::WindowsResource::new();
     resource.set_icon("assets/ezcap.ico");
     resource.set_manifest_file("assets/app.manifest");

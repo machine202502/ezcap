@@ -164,6 +164,8 @@ pub struct Settings {
     pub show_card: bool,
     pub threads: u32,
     pub scale: u32,
+    /// Interface language code; empty follows the Windows language.
+    pub ui_language: String,
 }
 
 impl Default for Settings {
@@ -185,6 +187,7 @@ impl Default for Settings {
             show_card: true,
             threads: 0,
             scale: 0,
+            ui_language: String::new(),
         }
     }
 }
@@ -324,6 +327,7 @@ impl Settings {
         let Some(registry) = Registry::open() else {
             return settings;
         };
+        settings.ui_language = registry.string("ui_language", "");
         settings.ui.format = Format::from_index(registry.dword("format", 0) as usize);
         for (index, name) in ["mkv", "gif", "webp"].iter().enumerate() {
             settings.ui.video[index].height =
@@ -440,6 +444,7 @@ impl Settings {
         registry.set_dword("show_card", self.show_card as u32);
         registry.set_dword("threads", self.threads);
         registry.set_dword("scale", self.scale);
+        registry.set_string("ui_language", &self.ui_language);
         update_autostart(self.autostart, self.start_minimized);
     }
 }

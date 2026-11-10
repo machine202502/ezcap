@@ -84,7 +84,7 @@ jobs:
         run: |
           set -euo pipefail
           cd site
-          for page in index.html en/index.html; do
+          for page in index.html en/index.html zh/index.html; do
             sed -i \
               -e 's/@@VERSION@@/${{ steps.release.outputs.version }}/g' \
               -e 's/@@HASH_SETUP@@/${{ steps.release.outputs.setup_hash }}/g' \

@@ -4,6 +4,7 @@
 
 mod capture;
 mod geom;
+mod i18n;
 mod media;
 mod outline;
 mod region;
@@ -11,6 +12,7 @@ mod settings;
 mod theme;
 mod ui;
 
+use crate::i18n::{tr, trf};
 pub(crate) use media::AudioSettings;
 use media::{Format, Rect};
 pub(crate) use settings::{test_mode, wide, CaptureSettings, ProfileRef, Settings};
@@ -25,10 +27,10 @@ use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::*;
 use windows::Win32::UI::Controls::{
-    TaskDialogIndirect, DRAWITEMSTRUCT, MEASUREITEMSTRUCT, ODS_DISABLED, ODS_GRAYED, ODS_SELECTED,
-    ODT_MENU, TASKDIALOGCONFIG, TASKDIALOG_NOTIFICATIONS, TB_THUMBTRACK, TDCBF_OK_BUTTON,
-    TDF_ALLOW_DIALOG_CANCELLATION, TDF_ENABLE_HYPERLINKS, TDF_POSITION_RELATIVE_TO_WINDOW,
-    TDF_SIZE_TO_CONTENT, TDN_HYPERLINK_CLICKED,
+    TaskDialogIndirect, DRAWITEMSTRUCT, MEASUREITEMSTRUCT, NMCUSTOMDRAW, NMHDR, NM_CUSTOMDRAW,
+    ODS_DISABLED, ODS_GRAYED, ODS_SELECTED, ODT_MENU, TASKDIALOGCONFIG, TASKDIALOG_NOTIFICATIONS,
+    TB_THUMBTRACK, TDCBF_OK_BUTTON, TDF_ALLOW_DIALOG_CANCELLATION, TDF_ENABLE_HYPERLINKS,
+    TDF_POSITION_RELATIVE_TO_WINDOW, TDF_SIZE_TO_CONTENT, TDN_HYPERLINK_CLICKED,
 };
 #[cfg(test)]
 use windows::Win32::UI::Controls::{TDF_CALLBACK_TIMER, TDN_TIMER};
@@ -70,9 +72,12 @@ static ABOUT_SHOT: std::sync::Mutex<Option<media::Frame>> = std::sync::Mutex::ne
 fn show_about(owner: HWND) {
     let title = wide("ezcap");
     let instruction = wide("ezcap");
-    let content = wide(&format!(
-        "Version {}\n\nScreen, region and audio capture.\n\nIncludes FFmpeg and x264 under the <a href=\"https://www.gnu.org/licenses/old-licenses/gpl-2.0.html\">GNU GPL v2 or later</a>.\n<a href=\"https://ffmpeg.org/legal.html\">FFmpeg</a>\n<a href=\"https://www.videolan.org/developers/x264.html\">x264</a>\n\nIcons from <a href=\"https://phosphoricons.com\">Phosphor Icons</a>, <a href=\"https://github.com/phosphor-icons/homepage/blob/master/LICENSE\">MIT</a>.\n\nOther library and crate notices are in NOTICE and THIRD-PARTY.txt next to this program.\n\n<a href=\"{REPOSITORY}\">ezcap source</a>",
-        env!("CARGO_PKG_VERSION")
+    let content = wide(&trf(
+        "Version {version}\n\nScreen, region and audio capture.\n\nIncludes FFmpeg and x264 under the <a href=\"https://www.gnu.org/licenses/old-licenses/gpl-2.0.html\">GNU GPL v2 or later</a>.\n<a href=\"https://ffmpeg.org/legal.html\">FFmpeg</a>\n<a href=\"https://www.videolan.org/developers/x264.html\">x264</a>\n\nIcons from <a href=\"https://phosphoricons.com\">Phosphor Icons</a>, <a href=\"https://github.com/phosphor-icons/homepage/blob/master/LICENSE\">MIT</a>.\n\nOther library and crate notices are in NOTICE and THIRD-PARTY.txt next to this program.\n\n<a href=\"{repository}\">ezcap source</a>",
+        &[
+            ("version", env!("CARGO_PKG_VERSION")),
+            ("repository", REPOSITORY),
+        ],
     ));
     let mut config = TASKDIALOGCONFIG {
         cbSize: std::mem::size_of::<TASKDIALOGCONFIG>() as u32,
@@ -219,9 +224,18 @@ pub(crate) fn history_stamp(
         "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     ]
     .get(month.saturating_sub(1) as usize)
-    .copied()
-    .unwrap_or("?");
-    format!("{day} {name} {year}, {hour:02}:{minute:02}:{second:02}")
+    .map(|month| tr(month))
+    .unwrap_or_else(|| "?".to_string());
+    let time = format!("{hour:02}:{minute:02}:{second:02}");
+    trf(
+        "{day} {month} {year}, {time}",
+        &[
+            ("day", &day.to_string()),
+            ("month", &name),
+            ("year", &year.to_string()),
+            ("time", &time),
+        ],
+    )
 }
 
 fn accepts_command(mode: Mode, id: i32, region_open: bool) -> bool {
@@ -356,25 +370,23 @@ fn recording_kind_for(audio_only: bool, region: bool, format: Format) -> Recordi
 
 fn recording_tip(kind: RecordingKind, seconds: u64) -> String {
     let name = match kind {
-        RecordingKind::AreaVideo => "area video",
-        RecordingKind::AreaAnimation => "area animation",
-        RecordingKind::Video => "video",
-        RecordingKind::Animation => "animation",
-        RecordingKind::Audio => "audio",
+        RecordingKind::AreaVideo => tr("area video"),
+        RecordingKind::AreaAnimation => tr("area animation"),
+        RecordingKind::Video => tr("video"),
+        RecordingKind::Animation => tr("animation"),
+        RecordingKind::Audio => tr("audio"),
     };
-    format!(
-        "ezcap — recording {name} {:02}:{:02}",
-        seconds / 60,
-        seconds % 60
+    trf(
+        "ezcap — recording {kind} {time}",
+        &[
+            ("kind", &name),
+            ("time", &format!("{:02}:{:02}", seconds / 60, seconds % 60)),
+        ],
     )
 }
 
-fn tray_window_label(shown: bool) -> &'static str {
-    if shown {
-        "Close window"
-    } else {
-        "Open window"
-    }
+fn tray_window_label(shown: bool) -> String {
+    tr(if shown { "Close window" } else { "Open window" })
 }
 
 fn tray_item_enabled(mode: Mode, id: i32) -> bool {
@@ -450,6 +462,13 @@ fn low(value: usize) -> u16 {
 
 fn high(value: usize) -> u16 {
     ((value >> 16) & 0xffff) as u16
+}
+
+fn point_of(lparam: LPARAM) -> (i32, i32) {
+    (
+        (lparam.0 & 0xFFFF) as u16 as i16 as i32,
+        ((lparam.0 >> 16) & 0xFFFF) as u16 as i16 as i32,
+    )
 }
 
 fn command_id(wparam: usize) -> i32 {
@@ -549,7 +568,7 @@ impl App {
             CreatePopupMenu()
         }
         .unwrap();
-        let mut items = vec![(ID_TRAY_OPEN, "Open window", MenuGlyph::Window)];
+        let mut items = vec![(ID_TRAY_OPEN, tr("Open window"), MenuGlyph::Window)];
         unsafe {
             // SAFETY: The menu belongs to this window, and the item text is NUL-terminated for the duration of the call.
 
@@ -557,7 +576,7 @@ impl App {
                 self.tray_menu,
                 MF_STRING,
                 ID_TRAY_OPEN as usize,
-                w!("Open window"),
+                i18n::pcw("Open window"),
             )
         }
         .unwrap();
@@ -567,11 +586,11 @@ impl App {
         }
         .unwrap();
         for (id, text, glyph) in [
-            (ID_TRAY_AREA, "Select area", MenuGlyph::Area),
-            (ID_TRAY_SHOT, "Screenshot screen", MenuGlyph::Shot),
-            (ID_TRAY_VIDEO, "Capture video", MenuGlyph::Video),
-            (ID_TRAY_AUDIO, "Capture audio", MenuGlyph::Audio),
-            (ID_TRAY_STOP, "Stop capture", MenuGlyph::Stop),
+            (ID_TRAY_AREA, tr("Select area"), MenuGlyph::Area),
+            (ID_TRAY_SHOT, tr("Screenshot screen"), MenuGlyph::Shot),
+            (ID_TRAY_VIDEO, tr("Capture video"), MenuGlyph::Video),
+            (ID_TRAY_AUDIO, tr("Capture audio"), MenuGlyph::Audio),
+            (ID_TRAY_STOP, tr("Stop capture"), MenuGlyph::Stop),
         ] {
             unsafe {
                 // SAFETY: The menu belongs to this window, and the item text is NUL-terminated for the duration of the call.
@@ -580,7 +599,7 @@ impl App {
                     self.tray_menu,
                     MF_STRING,
                     id as usize,
-                    PCWSTR(wide(text).as_ptr()),
+                    PCWSTR(wide(&text).as_ptr()),
                 )
             }
             .unwrap();
@@ -597,17 +616,22 @@ impl App {
                 self.tray_menu,
                 MF_STRING,
                 ID_TRAY_RESET_SCALE as usize,
-                w!("Reset Scale"),
+                i18n::pcw("Reset Scale"),
             )
         }
         .unwrap();
-        items.push((ID_TRAY_RESET_SCALE, "Reset Scale", MenuGlyph::Scale));
+        items.push((ID_TRAY_RESET_SCALE, tr("Reset Scale"), MenuGlyph::Scale));
         unsafe {
             // SAFETY: The menu belongs to this window, and the item text is NUL-terminated for the duration of the call.
-            AppendMenuW(self.tray_menu, MF_STRING, ID_TRAY_EXIT as usize, w!("Exit"))
+            AppendMenuW(
+                self.tray_menu,
+                MF_STRING,
+                ID_TRAY_EXIT as usize,
+                i18n::pcw("Exit"),
+            )
         }
         .unwrap();
-        items.push((ID_TRAY_EXIT, "Exit", MenuGlyph::Exit));
+        items.push((ID_TRAY_EXIT, tr("Exit"), MenuGlyph::Exit));
         for (id, _, glyph) in items {
             let bitmap = menu_bitmap(glyph);
             self.menu_icons.push(bitmap);
@@ -680,6 +704,10 @@ impl App {
             }
             return;
         }
+
+        if notification == BN_CLICKED as u16 && ui::is_checkbox(id) {
+            self.controls.toggle(id);
+        }
         if id == ID_MIC_DEVICE
             || id == ID_TRAY_AREA_DEVICE
             || id == ID_TRAY_VIDEO_DEVICE
@@ -690,6 +718,27 @@ impl App {
             }
             if notification == CBN_SELCHANGE as u16 {
                 self.controls.read_ui(&mut self.settings);
+            }
+            return;
+        }
+        if id == ID_LANGUAGE {
+            // The notification matters here: CBN_DROPDOWN arrives right before
+            // the list opens, and a dialog would close it again.
+            if notification == CBN_SELCHANGE as u16 {
+                self.controls.read_ui(&mut self.settings);
+                // Labels are created with the window, so a new language shows
+                // up on the next start.
+                let text = wide(&tr("Language saved. Restart ezcap to apply."));
+                unsafe {
+                    // SAFETY: The strings outlive the call and the window belongs to this program.
+
+                    MessageBoxW(
+                        self.hwnd,
+                        PCWSTR(text.as_ptr()),
+                        i18n::pcw("Language"),
+                        MB_OK | MB_ICONINFORMATION,
+                    );
+                }
             }
             return;
         }
@@ -995,7 +1044,9 @@ impl App {
         let recording = self.recording_for(source, take, force_format);
         if recording.video().is_none() && !recording.audio().system && !recording.audio().microphone
         {
-            self.error("Enable System audio or Microphone before capturing audio");
+            self.error(&tr(
+                "Enable System audio or Microphone before capturing audio",
+            ));
             return;
         }
         let (profile, audio_only) = recording.session();
@@ -1112,7 +1163,10 @@ impl App {
                     self.last_second = elapsed;
                     self.controls.set_text(
                         ID_STOP,
-                        &format!("Stop capture  {:02}:{:02}", elapsed / 60, elapsed % 60),
+                        &trf(
+                            "Stop capture  {time}",
+                            &[("time", &format!("{:02}:{:02}", elapsed / 60, elapsed % 60))],
+                        ),
                     );
                     self.set_tray_status(&recording_tip(self.recording_kind, elapsed));
                 }
@@ -1139,7 +1193,10 @@ impl App {
                     .unwrap_or(0);
                 self.controls.set_text(
                     ID_STOP,
-                    &format!("Saving…  {:02}:{:02}", elapsed / 60, elapsed % 60),
+                    &trf(
+                        "Saving…  {time}",
+                        &[("time", &format!("{:02}:{:02}", elapsed / 60, elapsed % 60))],
+                    ),
                 );
                 let result = self.finalizer.as_mut().map(|f| f.step());
                 match result {
@@ -1191,8 +1248,10 @@ impl App {
                 self.error(&error);
             }
         }
-        self.controls
-            .set_text(ID_STATUS, &format!("Saved: {}", path.display()));
+        self.controls.set_text(
+            ID_STATUS,
+            &trf("Saved: {path}", &[("path", &path.display().to_string())]),
+        );
         self.saved_path = Some(path.clone());
         self.history.insert(0, (path, history_line_now()));
         self.history.truncate(ui::HISTORY_COUNT as usize);
@@ -1205,11 +1264,17 @@ impl App {
             .history
             .iter()
             .map(|(path, when)| {
-                format!(
-                    "{when}   {}",
-                    path.file_name()
-                        .and_then(|name| name.to_str())
-                        .unwrap_or("file")
+                trf(
+                    "{when}   {file}",
+                    &[
+                        ("when", when),
+                        (
+                            "file",
+                            path.file_name()
+                                .and_then(|name| name.to_str())
+                                .unwrap_or("file"),
+                        ),
+                    ],
                 )
             })
             .collect();
@@ -1298,7 +1363,7 @@ impl App {
     }
 
     fn sync_window_item(&self) {
-        let mut label = wide(tray_window_label(self.window_shown()));
+        let mut label = wide(&tray_window_label(self.window_shown()));
         let mut info = MENUITEMINFOW {
             cbSize: std::mem::size_of::<MENUITEMINFOW>() as u32,
             fMask: MIIM_STRING,
@@ -1371,7 +1436,7 @@ impl App {
         let idle = self.mode == Mode::Idle;
         self.controls.set_idle(idle, self.mode == Mode::Recording);
         if self.mode == Mode::Idle {
-            self.controls.set_text(ID_STOP, "Stop capture");
+            self.controls.set_text(ID_STOP, &tr("Stop capture"));
         }
         for id in [
             ID_TRAY_AREA,
@@ -1400,7 +1465,7 @@ impl App {
             .unwrap_or(0);
         let tip = match self.mode {
             Mode::Recording => recording_tip(self.recording_kind, elapsed),
-            Mode::Saving => "ezcap — saving".into(),
+            Mode::Saving => tr("ezcap — saving"),
             _ => "ezcap".into(),
         };
         self.set_tray_status(&tip);
@@ -1452,7 +1517,9 @@ unsafe extern "system" fn wnd_proc(
             };
             let fps =
                 SendMessageW(app().controls.get(fps_id), WM_USER, WPARAM(0), LPARAM(0)).0 as u32;
-            app().controls.set_text(value_id, &format!("{} FPS", fps));
+            app()
+                .controls
+                .set_text(value_id, &trf("{fps} FPS", &[("fps", &fps.to_string())]));
             app().controls.read_ui(&mut app().settings);
             LRESULT(0)
         }
@@ -1528,17 +1595,57 @@ unsafe extern "system" fn wnd_proc(
             app().show_window();
             LRESULT(0)
         }
+        WM_PAINT => {
+            let mut paint = PAINTSTRUCT::default();
+            let dc = BeginPaint(hwnd, &mut paint);
+            let mut rect = RECT::default();
+            GetClientRect(hwnd, &mut rect).ok();
+            FillRect(dc, &rect, app().background);
+            if !APP.is_null() {
+                app().controls.paint_scrollbar(dc);
+            }
+            EndPaint(hwnd, &paint);
+            LRESULT(0)
+        }
+        WM_MOUSEWHEEL => {
+            if !APP.is_null() && app().controls.page == 1 {
+                let delta = ((wparam.0 >> 16) & 0xFFFF) as u16 as i16 as i32;
+                app().controls.scroll_by(-delta / 120 * 60);
+            }
+            LRESULT(0)
+        }
+        WM_LBUTTONDOWN => {
+            let (x, y) = point_of(lparam);
+            if !APP.is_null() && app().controls.scrollbar_press(x, y) {
+                unsafe {
+                    // SAFETY: The window belongs to this process; capture only routes the mouse here.
+                    SetCapture(hwnd);
+                }
+                return LRESULT(0);
+            }
+            DefWindowProcW(hwnd, message, wparam, lparam)
+        }
+        WM_MOUSEMOVE => {
+            let (_, y) = point_of(lparam);
+            if !APP.is_null() && app().controls.scrollbar_move(y) {
+                return LRESULT(0);
+            }
+            DefWindowProcW(hwnd, message, wparam, lparam)
+        }
+        WM_LBUTTONUP => {
+            if !APP.is_null() && app().controls.scrollbar_release() {
+                unsafe {
+                    // SAFETY: The capture was taken by this window.
+                    ReleaseCapture().ok();
+                }
+                return LRESULT(0);
+            }
+            DefWindowProcW(hwnd, message, wparam, lparam)
+        }
         WM_ERASEBKGND => {
             if APP.is_null() {
                 return DefWindowProcW(hwnd, message, wparam, lparam);
             }
-            let mut rect = RECT::default();
-            GetClientRect(hwnd, &mut rect).ok();
-            FillRect(
-                HDC(wparam.0 as *mut std::ffi::c_void),
-                &rect,
-                app().background,
-            );
             LRESULT(1)
         }
         WM_CTLCOLORSTATIC => {
@@ -1549,6 +1656,24 @@ unsafe extern "system" fn wnd_proc(
             SetTextColor(dc, if link { theme::ACCENT } else { TEXT });
             SetBkColor(dc, BACKGROUND);
             LRESULT(app().background.0 as isize)
+        }
+        WM_NOTIFY => {
+            let header = unsafe {
+                // SAFETY: Windows passes an NMHDR that lives for this message.
+                &*(lparam.0 as *const NMHDR)
+            };
+            let id = unsafe {
+                // SAFETY: The HWND belongs to a control of this window.
+                GetDlgCtrlID(header.hwndFrom)
+            };
+            if header.code == NM_CUSTOMDRAW && ui::is_trackbar(id) {
+                let draw = unsafe {
+                    // SAFETY: NM_CUSTOMDRAW shares the NMHDR layout this message carries.
+                    &mut *(lparam.0 as *mut NMCUSTOMDRAW)
+                };
+                return ui::paint_trackbar(draw);
+            }
+            DefWindowProcW(hwnd, message, wparam, lparam)
         }
         WM_CLOSE => {
             if app().settings.close_tray {
@@ -1919,6 +2044,31 @@ fn tray_status_icon(base: HICON, mode: Mode) -> HICON {
     }
 }
 
+/// Blend the title bar into the window. Windows 11 honors these attributes;
+/// older versions ignore the call, and the default caption is fine there.
+fn paint_title_bar(window: HWND) {
+    use windows::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMWA_CAPTION_COLOR, DWMWA_TEXT_COLOR,
+    };
+    for (attribute, color) in [
+        (DWMWA_CAPTION_COLOR, theme::BACKGROUND.0),
+        (DWMWA_TEXT_COLOR, theme::TEXT.0),
+    ] {
+        let value = color;
+        unsafe {
+            // SAFETY: The window belongs to this process, and the attribute is a
+            // plain COLORREF whose size is passed in.
+            DwmSetWindowAttribute(
+                window,
+                attribute,
+                &value as *const u32 as *const std::ffi::c_void,
+                std::mem::size_of::<u32>() as u32,
+            )
+            .ok();
+        }
+    }
+}
+
 fn main() {
     unsafe {
         // SAFETY: The window handle belongs to this program. The message carries no borrowed pointer.
@@ -1940,6 +2090,7 @@ fn main() {
             }
             return;
         }
+        i18n::init(&Settings::load().ui_language);
         media::init();
         let instance = GetModuleHandleW(None).unwrap();
         let class = WNDCLASSW {
@@ -1955,7 +2106,7 @@ fn main() {
         RegisterClassW(&class);
         region::register(instance.into());
         let minimized = std::env::args().any(|a| a == "--minimized");
-        CreateWindowExW(
+        let window = CreateWindowExW(
             WINDOW_EX_STYLE(0),
             CLASS,
             TITLE,
@@ -1970,6 +2121,7 @@ fn main() {
             None,
         )
         .unwrap();
+        paint_title_bar(window);
         if !minimized {
             app().show_window();
         }

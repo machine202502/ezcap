@@ -35,10 +35,13 @@ document.querySelectorAll("[data-lang-set]").forEach((link) => {
 
 const shotImages = [...document.querySelectorAll(".hero-shot img, .shot img")];
 if (shotImages.length) {
-  const ru = document.documentElement.lang.toLowerCase().startsWith("ru");
-  const text = ru
-    ? { close: "Закрыть", prev: "Предыдущий скриншот", next: "Следующий скриншот" }
-    : { close: "Close", prev: "Previous screenshot", next: "Next screenshot" };
+  const lang = document.documentElement.lang.toLowerCase().slice(0, 2);
+  const texts = {
+    ru: { close: "Закрыть", prev: "Предыдущий скриншот", next: "Следующий скриншот" },
+    zh: { close: "关闭", prev: "上一张截图", next: "下一张截图" },
+    en: { close: "Close", prev: "Previous screenshot", next: "Next screenshot" },
+  };
+  const text = texts[lang] || texts.en;
   const dialog = document.createElement("dialog");
   dialog.className = "lightbox";
   dialog.innerHTML = `

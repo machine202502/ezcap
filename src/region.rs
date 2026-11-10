@@ -1,4 +1,5 @@
 use crate::geom::{self, Panel};
+use crate::i18n::tr;
 use crate::media::{self, Format, Frame, Rect};
 use crate::theme;
 use std::path::PathBuf;
@@ -1160,7 +1161,7 @@ impl Region {
                 WPARAM(self.edit_font.0 as usize),
                 LPARAM(1),
             );
-            let hint = crate::wide("Type, Enter to finish");
+            let hint = crate::wide(&tr("Type, Enter to finish"));
             SendMessageW(self.edit, 0x1501, WPARAM(1), LPARAM(hint.as_ptr() as isize));
             SetWindowTextW(self.edit, PCWSTR::null()).ok();
             ShowWindow(self.edit, SW_SHOW);
@@ -2265,7 +2266,9 @@ fn draw_badge(dc: HDC, region: &Region, selection: Selection) {
 }
 
 fn draw_hint(dc: HDC, region: &Region) {
-    let mut text = crate::wide("Drag to select an area    ·    Double click: full screen    ·    Tab: next display    ·    Esc: cancel");
+    let mut text = crate::wide(&tr(
+        "Drag to select an area    ·    Double click: full screen    ·    Tab: next display    ·    Esc: cancel",
+    ));
     unsafe {
         // SAFETY: The DC belongs to a window this program is painting, and created GDI objects are deleted before return.
 
@@ -2323,7 +2326,7 @@ fn action_metrics(region: &Region, role: Role) -> (i32, i32, i32, i32) {
         let icon_w =
             measure(dc, region.icon_font, glyph).max((16 * region.scale as i32 / 100).max(14));
         let (gap, text_w) = match caption(role) {
-            Some(caption) => (gap, measure(dc, region.font, caption)),
+            Some(caption) => (gap, measure(dc, region.font, &caption)),
             None => (0, 0),
         };
         ReleaseDC(None, dc);
@@ -2361,9 +2364,9 @@ fn icon(role: Role) -> Option<&'static str> {
     })
 }
 
-fn caption(role: Role) -> Option<&'static str> {
+fn caption(role: Role) -> Option<String> {
     match role {
-        Role::Record => Some("Record"),
+        Role::Record => Some(tr("Record")),
         _ => None,
     }
 }
@@ -2490,7 +2493,7 @@ fn draw_button(dc: HDC, region: &Region, button: &Button) {
                     DT_CENTER | DT_VCENTER | DT_SINGLELINE,
                 );
                 SelectObject(dc, region.font);
-                let mut text = crate::wide(caption);
+                let mut text = crate::wide(&caption);
                 let mut text_rect = RECT {
                     left: icon_rect.right + gap,
                     top: button.y,
@@ -2691,7 +2694,7 @@ pub fn open(overlay: Overlay, allow_record: bool) -> Result<(), String> {
         // SAFETY: The class name lives for the process. The new HWND is stored and destroyed with its owner.
 
         if !REGION.is_null() {
-            return Err("Area selection is already active".into());
+            return Err(tr("Area selection is already active"));
         }
         let monitor = media::cursor_monitor_rect();
         let hwnd = CreateWindowExW(

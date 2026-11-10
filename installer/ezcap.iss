@@ -39,6 +39,7 @@ Name: desktopicon; Description: "Create a desktop shortcut"; GroupDescription: "
 Source: "{#SourceExe}"; DestDir: "{app}"; DestName: "ezcap.exe"; Flags: ignoreversion
 Source: "..\COPYING"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\NOTICE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\locales\*.json"; DestDir: "{app}\locales"; Flags: ignoreversion
 Source: "{#ThirdParty}"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]

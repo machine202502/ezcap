@@ -5,6 +5,7 @@
 //! idle tray process keeps no capture device, no audio client and no extra frame.
 
 use crate::geom::{self, AudioQueue};
+use crate::i18n::{tr, trf};
 use crate::media::{self, Format, Frame, RecordOptions, Rect};
 use crate::wide;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -160,7 +161,12 @@ impl VideoCapture {
         };
         let control = Handler::start_free_threaded(settings(DrawBorderSettings::WithoutBorder))
             .or_else(|_| Handler::start_free_threaded(settings(DrawBorderSettings::Default)))
-            .map_err(|error| format!("Windows Graphics Capture: {error}"))?;
+            .map_err(|error| {
+                trf(
+                    "Windows Graphics Capture: {error}",
+                    &[("error", &error.to_string())],
+                )
+            })?;
         let capture = Self {
             control: Some(control),
             slot: slot.clone(),
@@ -241,7 +247,7 @@ fn wait_frame(slot: &Slot, timeout: Duration) -> Result<Frame, String> {
     while guard.is_none() {
         let remaining = timeout.saturating_sub(start.elapsed());
         if remaining.is_zero() {
-            return Err("Windows Graphics Capture did not deliver a frame".into());
+            return Err(tr("Windows Graphics Capture did not deliver a frame").into());
         }
         let (next, status) = slot
             .arrived
@@ -350,7 +356,7 @@ pub fn grab_display(rect: Rect) -> Result<Frame, String> {
     rect.w &= !1;
     rect.h &= !1;
     if rect.w == 0 || rect.h == 0 {
-        return Err("The capture area is empty".into());
+        return Err(tr("The capture area is empty").into());
     }
     media::grab_without_cursor(rect)
 }
@@ -389,23 +395,23 @@ fn open_stream(
     let (device, supported) = if system {
         let device = host
             .default_output_device()
-            .ok_or("No playback device for system audio")?;
+            .ok_or(tr("No playback device for system audio"))?;
         let supported = device
             .default_output_config()
-            .map_err(|error| format!("System audio: {error}"))?;
+            .map_err(|error| trf("System audio: {error}", &[("error", &error.to_string())]))?;
         (device, supported)
     } else if let Some(name) = device_name {
         let device = host
             .input_devices()
             .map_err(|error| error.to_string())?
             .find(|device| device.to_string() == name)
-            .ok_or_else(|| format!("Microphone \"{name}\" was not found"))?;
+            .ok_or_else(|| trf("Microphone \"{name}\" was not found", &[("name", name)]))?;
         let supported = device
             .default_input_config()
-            .map_err(|error| format!("Microphone: {error}"))?;
+            .map_err(|error| trf("Microphone: {error}", &[("error", &error.to_string())]))?;
         (device, supported)
     } else {
-        let device = host.default_input_device().ok_or("No microphone")?;
+        let device = host.default_input_device().ok_or(tr("No microphone"))?;
         let supported = device
             .default_input_config()
             .map_err(|error| format!("Microphone: {error}"))?;
@@ -428,11 +434,14 @@ fn open_stream(
         SampleFormat::I16 => build::<i16>(&device, config, channels, rate, target, clock, gain),
         SampleFormat::I32 => build::<i32>(&device, config, channels, rate, target, clock, gain),
         SampleFormat::U16 => build::<u16>(&device, config, channels, rate, target, clock, gain),
-        other => Err(format!("Unsupported audio format {other}")),
+        other => Err(trf(
+            "Unsupported audio format {other}",
+            &[("other", &other.to_string())],
+        )),
     }?;
     stream
         .play()
-        .map_err(|error| format!("Audio stream: {error}"))?;
+        .map_err(|error| trf("Audio stream: {error}", &[("error", &error.to_string())]))?;
     Ok(AudioIn {
         queue,
         _stream: stream,
@@ -819,9 +828,9 @@ impl Live {
             if !keep {
                 let _ = std::fs::remove_file(&self.scratch);
                 return Err(if options.audio_only {
-                    "Recording produced no audio".into()
+                    tr("Recording produced no audio").into()
                 } else {
-                    "Recording produced no video".into()
+                    tr("Recording produced no video").into()
                 });
             }
             publish_file(&self.scratch, &self.output)?;
@@ -857,7 +866,7 @@ fn prepare(options: &RecordOptions, _stop: &AtomicBool) -> Result<Live, String> 
     rect.w &= !1;
     rect.h &= !1;
     if !options.audio_only && (rect.w < 16 || rect.h < 16) {
-        return Err("Capture area is too small".into());
+        return Err(tr("Capture area is too small").into());
     }
     let output = if options.audio_only {
         media::output_path("Audio", "mp3")?
@@ -876,7 +885,7 @@ fn prepare(options: &RecordOptions, _stop: &AtomicBool) -> Result<Live, String> 
     let audio_requested = (options.audio_only || options.profile.format == Format::Mkv)
         && (options.profile.audio.system || options.profile.audio.microphone);
     if options.audio_only && !audio_requested {
-        return Err("Enable System audio or Microphone before capturing audio".into());
+        return Err(tr("Enable System audio or Microphone before capturing audio").into());
     }
     let clock = Instant::now();
     let mut inputs = Vec::new();
@@ -900,7 +909,7 @@ fn prepare(options: &RecordOptions, _stop: &AtomicBool) -> Result<Live, String> 
     let mut video = if options.audio_only {
         None
     } else if options.window {
-        let window = take_window().ok_or("The window is no longer available")?;
+        let window = take_window().ok_or(tr("The window is no longer available"))?;
         let (capture, frame) =
             VideoCapture::start_window(window, options.profile.video.fps, options.cursor)?;
         rect.w = frame.width.max(2) & !1;
@@ -1032,7 +1041,7 @@ impl Session {
             Err(_) => {
                 stop.store(true, Ordering::SeqCst);
                 let _ = thread.join();
-                Err("Capture did not start".into())
+                Err(tr("Capture did not start").into())
             }
         }
     }
@@ -1055,9 +1064,9 @@ impl Session {
         let prepared = self
             .thread
             .take()
-            .ok_or("Capture is already stopping")?
+            .ok_or(tr("Capture is already stopping"))?
             .join()
-            .map_err(|_| "Capture thread stopped unexpectedly".to_string())??;
+            .map_err(|_| tr("Capture thread stopped unexpectedly").to_string())??;
         if prepared.animate {
             let scratch = prepared.scratch;
             let output = prepared.output;
@@ -1362,7 +1371,7 @@ impl Finalizer {
         }
         let worker = self.worker.take().unwrap();
         Ok(Some(worker.join().map_err(|_| {
-            "Encoder thread stopped unexpectedly".to_string()
+            tr("Encoder thread stopped unexpectedly")
         })??))
     }
 }

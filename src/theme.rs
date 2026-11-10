@@ -1,23 +1,33 @@
-//! Sea breeze. One place for the interface colors.
+//! Blue on warm paper. The accent is the application icon's blue and the
+//! surfaces follow the site's palette. One place for the interface colors.
 //!
 //! Windows stores COLORREF as 0x00BBGGRR.
 
 use windows::Win32::Foundation::COLORREF;
 
-/// Daylight on still water.
-pub const BACKGROUND: COLORREF = COLORREF(0x00f6f3ee);
-/// A slightly deeper mist, for controls that are present but not chosen.
-pub const MIST: COLORREF = COLORREF(0x00eadfd4);
-/// The main sea blue.
-pub const ACCENT: COLORREF = COLORREF(0x00c48c3e);
-/// Deeper water, for a pressed or emphasized control.
-pub const ACCENT_DEEP: COLORREF = COLORREF(0x00a56e28);
-/// Navy ink on the light surfaces.
+/// The window surface: the site's warm paper.
+pub const BACKGROUND: COLORREF = COLORREF(0x00eef3f6);
+/// Cards, fields and buttons that sit on the surface.
+pub const SURFACE: COLORREF = COLORREF(0x00fffdf9);
+/// Hairline around cards and fields.
+pub const BORDER: COLORREF = COLORREF(0x00d5dee5);
+/// A slightly deeper mist, for pressed or inactive controls.
+pub const MIST: COLORREF = COLORREF(0x00e0e7ec);
+/// The icon blue.
+pub const ACCENT: COLORREF = COLORREF(0x00a8742e);
+/// Deeper blue, for a pressed primary control.
+pub const ACCENT_DEEP: COLORREF = COLORREF(0x00a57028);
+/// Ink on the light surfaces.
 pub const TEXT: COLORREF = COLORREF(0x00422e1c);
-/// Light ink on the sea-blue controls.
-pub const ON_ACCENT: COLORREF = COLORREF(0x00fbf8f4);
+/// The scroll bar thumb, and its colour while dragged.
+pub const SCROLLBAR: COLORREF = COLORREF(0x00dcd5cb);
+pub const SCROLLBAR_ACTIVE: COLORREF = COLORREF(0x00bdb09f);
+/// Secondary ink: captions and inactive tabs.
+pub const MUTED: COLORREF = COLORREF(0x007d6b5a);
+/// Light ink on the accent.
+pub const ON_ACCENT: COLORREF = COLORREF(0x00ffffff);
 /// A control that cannot be used.
-pub const DISABLED: COLORREF = COLORREF(0x00c8beb4);
+pub const DISABLED: COLORREF = COLORREF(0x00a8b0b7);
 
 /// Overlay buttons sit on the screenshot, so they are darker than the window.
 pub const OVERLAY: COLORREF = COLORREF(0x0034281c);
@@ -39,7 +49,7 @@ pub const BLACK: COLORREF = COLORREF(0x00000000);
 pub const HINT_SHADOW: COLORREF = COLORREF(0x00101010);
 
 /// Transparent key of the text editor. The caret is the inverse of this color,
-/// which makes it the sea-blue accent.
+/// which makes it the blue accent.
 pub const CHROMA: COLORREF = inverse(ACCENT);
 
 /// Pen colors offered in the overlay.

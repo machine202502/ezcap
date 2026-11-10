@@ -1328,7 +1328,7 @@ fn microphone_gain_is_per_widget_and_live_for_the_active_recording() {
         // SAFETY: The target is a static control of the window created above and the buffer is writable.
         GetWindowTextW(app().controls.get(ID_MIC_GAIN_VALUE), &mut label)
     } as usize;
-    assert_eq!(String::from_utf16_lossy(&label[..label_len]), "Mic 237%");
+    assert_eq!(String::from_utf16_lossy(&label[..label_len]), "237%");
     assert_eq!(
         app()
             .live_gain

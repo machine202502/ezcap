@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-Hans" data-size-unit="MB">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ezcap — Windows 屏幕录制与截图工具</title>
+  <meta name="description" content="ezcap 可录制屏幕、窗口或区域，并截取截图和短 GIF。适用于 Windows 10 和 11 的免费应用，无需账号。">
+  <meta name="robots" content="index, follow">
+  <meta name="theme-color" content="#3e8cc4">
+  <link rel="canonical" href="https://machine202502.github.io/ezcap/zh/">
+  <link rel="alternate" hreflang="ru" href="https://machine202502.github.io/ezcap/">
+  <link rel="alternate" hreflang="en" href="https://machine202502.github.io/ezcap/en/">
+  <link rel="alternate" hreflang="zh" href="https://machine202502.github.io/ezcap/zh/">
+  <link rel="alternate" hreflang="x-default" href="https://machine202502.github.io/ezcap/en/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ezcap">
+  <meta property="og:locale" content="zh_CN">
+  <meta property="og:locale:alternate" content="ru_RU">
+  <meta property="og:locale:alternate" content="en_US">
+  <meta property="og:title" content="ezcap — Windows 屏幕录制与截图工具">
+  <meta property="og:description" content="录制屏幕、窗口或区域，截取截图和短 GIF。Windows 10 和 11 免费使用。">
+  <meta property="og:url" content="https://machine202502.github.io/ezcap/zh/">
+  <meta property="og:image" content="https://machine202502.github.io/ezcap/assets/icon.png">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="ezcap — Windows 屏幕录制与截图工具">
+  <meta name="twitter:description" content="录制屏幕、窗口或区域，截取截图和短 GIF。Windows 10 和 11 免费使用。">
+  <meta name="twitter:image" content="https://machine202502.github.io/ezcap/assets/icon.png">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "ezcap",
+    "applicationCategory": "MultimediaApplication",
+    "operatingSystem": "Windows 10, Windows 11",
+    "inLanguage": "zh-Hans",
+    "url": "https://machine202502.github.io/ezcap/zh/",
+    "downloadUrl": "https://github.com/machine202502/ezcap/releases/latest",
+    "description": "为 Windows 录制屏幕、窗口和区域，并截取截图和短 GIF。",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+  }
+  </script>
+  <link rel="icon" type="image/png" href="../assets/icon.png">
+  <link rel="stylesheet" href="../styles.css">
+  <script>
+    (function () {
+      var chosen = null;
+      try { chosen = localStorage.getItem("ezcap-lang"); } catch (e) {}
+      var codes = ["ru", "en", "zh"];
+      var here = document.documentElement.lang.slice(0, 2);
+      var base = here === "ru" ? "" : "../";
+      var want = codes.indexOf(chosen) >= 0 ? chosen : null;
+      if (!want) {
+        var langs = navigator.languages || [navigator.language || "en"];
+        for (var i = 0; i < langs.length && !want; i++) {
+          var tag = String(langs[i]).toLowerCase();
+          for (var j = 0; j < codes.length; j++) {
+            if (tag.indexOf(codes[j]) === 0) { want = codes[j]; break; }
+          }
+        }
+        if (!want) { want = "en"; }
+      }
+      var bot = /bot|crawl|spider|slurp|facebookexternalhit|preview/i.test(navigator.userAgent);
+      if (!bot && want !== here) { location.replace(base + (want === "ru" ? "" : want + "/")); }
+    })();
+  </script>
+</head>
+<body>
+
+  <div class="blob blob-a" aria-hidden="true"></div>
+  <div class="blob blob-b" aria-hidden="true"></div>
+
+  <header class="nav">
+    <a class="brand" href="#top">
+      <img src="../assets/icon.png" alt="ezcap" width="34" height="34">
+      <span>ezcap</span>
+    </a>
+    <nav class="nav-links">
+      <a href="#features">功能</a>
+      <a href="#screens">截图</a>
+      <a href="#download">下载</a>
+    </nav>
+    <nav class="langs" aria-label="语言">
+      <a href="../" hreflang="ru" lang="ru" data-lang-set="ru">RU</a>
+      <a href="../en/" hreflang="en" lang="en" data-lang-set="en">EN</a>
+      <a href="./" hreflang="zh" lang="zh" data-lang-set="zh" aria-current="true">中文</a>
+    </nav>
+    <a class="btn btn-ghost" href="https://github.com/machine202502/ezcap" target="_blank" rel="noopener">
+      <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+      GitHub
+    </a>
+  </header>
+
+  <main id="top">
+
+    <section class="hero">
+      <div class="hero-text reveal">
+        <span class="pill" data-version>版本 @@VERSION@@ · Windows 10/11，64 位</span>
+        <h1>录制屏幕。<br>截取截图。<br><span class="accent">仅此而已。</span></h1>
+        <p class="lead">
+          ezcap 不打扰你：一键录制、区域截图、GIF，声音清晰。
+          没有臃肿的编辑器。按下按钮，就能拿到文件。
+        </p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="https://github.com/machine202502/ezcap/releases/latest/download/ezcap-@@VERSION@@-windows-x64-setup.exe" data-dl-setup>
+            下载安装程序
+          </a>
+          <a class="btn btn-secondary" href="https://github.com/machine202502/ezcap/releases/latest/download/ezcap-@@VERSION@@-windows-x64.zip" data-dl-zip>
+            便携版（.zip）
+          </a>
+        </div>
+        <p class="hint">免费 · 源码采用 MIT 许可 · 程序包含 FFmpeg，按 GPL 分发 · 无云端、无账号</p>
+      </div>
+      <div class="hero-shot reveal">
+        <img src="../assets/main-zh.png" alt="ezcap 主窗口" width="1144" height="1560">
+      </div>
+    </section>
+
+    <section id="features" class="section">
+      <h2 class="reveal">录制需要的一切</h2>
+      <p class="section-sub reveal">不多一点。只有你每天都会用到的工具。</p>
+      <div class="cards">
+        <article class="card reveal">
+          <div class="card-icon">
+            <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 22h8M12 18v4"/><circle cx="12" cy="11" r="3.2"/></svg>
+          </div>
+          <h3>屏幕视频</h3>
+          <p>录制整个屏幕、单个窗口或一个区域。最高 1080p、60 FPS，保存为 MKV。</p>
+        </article>
+        <article class="card reveal">
+          <div class="card-icon">
+            <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M2 9h20M7 3v3M17 3v3"/></svg>
+          </div>
+          <h3>截图</h3>
+          <p>整个屏幕、单个窗口或任意区域。按一下即可保存为 PNG。</p>
+        </article>
+        <article class="card reveal">
+          <div class="card-icon">
+            <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="m10 8 5 3-5 3V8Z" fill="currentColor" stroke="none"/></svg>
+          </div>
+          <h3>GIF 与 WebP</h3>
+          <p>为聊天或文章录一段短动画。ezcap 会直接生成 GIF 或 WebP。</p>
+        </article>
+        <article class="card reveal">
+          <div class="card-icon">
+          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4"/></svg>
+          </div>
+          <h3>清晰的音频</h3>
+          <p>系统声音和麦克风一起录，麦克风还能单独增强。只录声音也可以。</p>
+        </article>
+        <article class="card reveal">
+          <div class="card-icon">
+            <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg>
+          </div>
+          <h3>区域编辑器</h3>
+          <p>选中一块区域后，可以画箭头、加文字或遮挡内容。可保存、复制，也可以直接录制。</p>
+        </article>
+        <article class="card reveal">
+          <div class="card-icon">
+            <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h14v18l-7-5-7 5V3Z"/></svg>
+          </div>
+          <h3>随时在手边</h3>
+          <p>它住在托盘里。点一下图标就开始录制。最近的文件可以复制，也可以在文件夹中显示。</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="screens" class="section">
+      <h2 class="reveal">看起来简单，用起来也简单。</h2>
+      <div class="shots">
+        <figure class="shot reveal">
+          <img src="../assets/main-zh.png" alt="录制窗口" loading="lazy">
+          <figcaption>主界面：格式、画质、帧率和音频来源</figcaption>
+        </figure>
+        <figure class="shot reveal">
+          <img src="../assets/region.png" alt="区域选择与标注" loading="lazy">
+          <figcaption>区域选择：绘图、箭头和文字</figcaption>
+        </figure>
+        <figure class="shot reveal">
+          <img src="../assets/settings-zh.png" alt="设置" loading="lazy">
+          <figcaption>设置：启动、托盘与录制配置</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section id="download" class="section">
+      <h2 class="reveal">下载 ezcap</h2>
+      <p class="section-sub reveal">Windows 10/11，64 位。两个文件都由源码构建。下面的哈希可以证明文件没有被替换。</p>
+      <div class="dl-grid">
+        <article class="dl-card reveal">
+          <h3>安装程序</h3>
+          <p class="dl-desc">为这台电脑上的所有用户正常安装。</p>
+          <a class="btn btn-primary wide" href="https://github.com/machine202502/ezcap/releases/latest/download/ezcap-@@VERSION@@-windows-x64-setup.exe" data-dl-setup data-fallback="下载安装程序 · Windows x64">
+            ezcap<span data-version>-@@VERSION@@-</span>windows-x64-setup.exe
+          </a>
+          <dl class="meta">
+            <div><dt>大小</dt><dd data-size-setup>@@SIZE_SETUP@@ MB</dd></div>
+            <div>
+              <dt>SHA-256</dt>
+              <dd class="hash"><code data-hash-setup>@@HASH_SETUP@@</code>
+                <button class="copy" data-copy="setup" title="复制哈希">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+                </button>
+              </dd>
+            </div>
+          </dl>
+        </article>
+        <article class="dl-card reveal">
+          <h3>便携版</h3>
+          <p class="dl-desc">解压压缩包并运行 ezcap.exe。无需安装。</p>
+          <a class="btn btn-secondary wide" href="https://github.com/machine202502/ezcap/releases/latest/download/ezcap-@@VERSION@@-windows-x64.zip" data-dl-zip data-fallback="下载便携版压缩包（.zip）">
+            ezcap<span data-version>-@@VERSION@@-</span>windows-x64.zip
+          </a>
+          <dl class="meta">
+            <div><dt>大小</dt><dd data-size-zip>@@SIZE_ZIP@@ MB</dd></div>
+            <div>
+              <dt>SHA-256</dt>
+              <dd class="hash"><code data-hash-zip>@@HASH_ZIP@@</code>
+                <button class="copy" data-copy="zip" title="复制哈希">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+                </button>
+              </dd>
+            </div>
+          </dl>
+        </article>
+      </div>
+      <p class="reveal gh-note">
+        所有版本、源码和历史记录都在
+        <a href="https://github.com/machine202502/ezcap" target="_blank" rel="noopener">GitHub ↗</a>
+      </p>
+      <p class="reveal license-note">
+        ezcap 源码采用
+        <a href="https://github.com/machine202502/ezcap/blob/master/LICENSE">MIT 许可</a>。
+        下载的程序包含 FFmpeg 和 x264，因此程序文件本身按
+        <a href="https://www.gnu.org/licenses/old-licenses/gpl-2.0.html">GNU GPL 第 2 版或更高版本</a>分发。
+        叠加层图标来自 <a href="https://phosphoricons.com">Phosphor Icons</a>，
+        <a href="https://github.com/machine202502/ezcap/blob/master/assets/Phosphor.LICENSE">MIT</a>。
+        zip 与安装目录中包含 COPYING、NOTICE 和 THIRD-PARTY.txt，
+        列有 FFmpeg、x264、zlib、libwebp、LAME 以及 Rust crate 的许可文本。
+      </p>
+    </section>
+
+  </main>
+
+  <footer class="footer">
+    <img src="../assets/icon.png" alt="" width="22" height="22">
+    <span>ezcap · 源码 <a href="https://github.com/machine202502/ezcap/blob/master/LICENSE">MIT</a> · 程序 <a href="https://github.com/machine202502/ezcap/blob/master/COPYING">GPL</a> · <span data-year></span></span>
+  </footer>
+
+  <script src="../app.js"></script>
+</body>
+</html>

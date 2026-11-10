@@ -4,6 +4,19 @@ Windows program for screen, region, and audio capture. It records MKV, GIF, and 
 
 The source in this repository is under the MIT license. A release build statically links FFmpeg and x264 under the GNU GPL v2 or later, so the distributed executable is covered by the GPL. `COPYING` is that license. The overlay icons are Phosphor Icons under the MIT license (`assets/Phosphor.LICENSE`). `NOTICE` names these obligations. The generated `THIRD-PARTY.txt` adds the copyright text for the linked codecs and for the Rust crates, and it travels with the zip and the installer. Source and downloads: https://github.com/machine202502/ezcap
 
+## Interface language
+
+English is compiled into the executable, so the program is fully usable with no
+locale files at all: the portable zip ships only that built-in English.
+
+Russian and Simplified Chinese are plain JSON catalogs in the `locales/` folder
+next to `ezcap.exe`; the installer ships `ru.json`, `en.json` and `zh.json`.
+A translation can be fixed or added without rebuilding: drop another
+`<code>.json` into that folder, or into `%LOCALAPPDATA%\ezcap\locales`, and it
+appears in **Settings → Language**. "System" follows the Windows display language
+and falls back to the built-in English when no catalog matches. The language is
+applied on the next start.
+
 ## Build
 
 Windows x64, a stable Rust toolchain, and a static FFmpeg install from `vcpkg.json` (codecs: H.264, WebP, MP3). Point `FFMPEG_DIR` at that prefix. It must contain `lib` and `lib/pkgconfig`.

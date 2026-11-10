@@ -4,12 +4,21 @@
     <loc>https://machine202502.github.io/ezcap/</loc>
     <xhtml:link rel="alternate" hreflang="ru" href="https://machine202502.github.io/ezcap/"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://machine202502.github.io/ezcap/en/"/>
+    <xhtml:link rel="alternate" hreflang="zh" href="https://machine202502.github.io/ezcap/zh/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://machine202502.github.io/ezcap/en/"/>
   </url>
   <url>
     <loc>https://machine202502.github.io/ezcap/en/</loc>
     <xhtml:link rel="alternate" hreflang="ru" href="https://machine202502.github.io/ezcap/"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://machine202502.github.io/ezcap/en/"/>
+    <xhtml:link rel="alternate" hreflang="zh" href="https://machine202502.github.io/ezcap/zh/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://machine202502.github.io/ezcap/en/"/>
+  </url>
+  <url>
+    <loc>https://machine202502.github.io/ezcap/zh/</loc>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://machine202502.github.io/ezcap/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://machine202502.github.io/ezcap/en/"/>
+    <xhtml:link rel="alternate" hreflang="zh" href="https://machine202502.github.io/ezcap/zh/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://machine202502.github.io/ezcap/en/"/>
   </url>
 </urlset>
